@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TCD REUP TOOL — Automation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+  <!-- Top App Header -->
+  <header class="top-header">
+    <div class="brand-section">
+      <!-- <span class="brand-badge">VIP PRO</span> -->
+      <span class="app-title">TCD REUP TOOL</span>
+    </div>
+
+    <!-- Project Controls -->
+    <div class="project-controls">
+      <label for="project-select">Dự án:</label>
+      <select id="project-select" class="select-control"></select>
+      <button id="btn-open-create-project" class="btn btn-secondary btn-sm">➕ Tạo dự án</button>
+      <button id="btn-open-manage-projects" class="btn btn-secondary btn-sm">⚙ Quản lý dự án</button>
+    </div>
+
+    <!-- Header Right (License) -->
+    <div class="header-right">
+      <div class="license-pill">
+        <span class="license-dot"></span>
+        <span>License - Vĩnh viễn</span>
+      </div>
+
+      <div class="author-pill">Thanh Code Dao: @thanhcodedao</div>
+    </div>
+  </header>
+
+  <!-- Main Workspace Content -->
+  <main class="app-content">
+
+    <!-- Top Channels Management Section -->
+    <section class="cyber-card channels-section">
+      <div class="section-header">
+        <div class="section-title">
+          <span>📺 Kênh theo dõi</span>
+          <span id="badge-channel-count" style="font-size: 11px; color: var(--text-muted); font-weight: normal;">(0
+            kênh)</span>
+        </div>
+        <div id="schedule-indicator" class="schedule-badge">⏰ Lịch: Tự do (24/7)</div>
+      </div>
+
+      <div class="channels-input-bar">
+        <input type="text" id="input-channel-url" class="text-input"
+          placeholder="Nhập link kênh YouTube (https://youtube.com/channel/... hoặc @username)...">
+        <button id="btn-add-channel" class="btn btn-primary">➕ Thêm kênh</button>
+        <button id="btn-del-channel" class="btn btn-secondary">🗑 Xóa kênh</button>
+      </div>
+
+      <!-- Channel Table -->
+      <div class="channels-table-container">
+        <table class="cyber-table" id="table-channels">
+          <thead>
+            <tr>
+              <th style="width: 40px; text-align: center;"><input type="checkbox" id="chk-all-channels"></th>
+              <th style="width: 50px;">#</th>
+              <th>Link Kênh YouTube</th>
+              <th style="width: 290px;">GPM Profile & Chế Độ Video</th>
+              <th style="width: 140px;">Trạng Thái</th>
+            </tr>
+          </thead>
+          <tbody id="channels-tbody">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Execution Action Bar -->
+      <div class="channels-actions-bar">
+        <div class="action-group-left">
+          <button id="btn-start-automation" class="btn btn-emerald">▶ Bắt đầu</button>
+          <button id="btn-stop-automation" class="btn btn-ruby" disabled>⏹ Dừng</button>
+          <div class="threads-box">
+            <span>Luồng:</span>
+            <input type="number" id="input-threads" class="threads-input" value="500" min="1" max="1000">
+          </div>
+        </div>
+
+        <div class="action-group-right">
+          <button id="btn-open-schedule-mode" class="btn btn-secondary btn-sm">⏰ Phân tích giờ đăng</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Middle Grid: System Logs & Quota/Queue -->
+    <section class="middle-grid">
+      <!-- Left Column: Terminal Logs -->
+      <div class="cyber-card terminal-card">
+        <div class="terminal-header">
+          <div class="section-title" style="font-size: 12px;">📜 Logs hệ thống (Real-time)</div>
+          <button id="btn-clear-logs" class="btn btn-secondary btn-sm">Xóa log</button>
+        </div>
+        <div class="terminal-body" id="terminal-logs">
+          <div class="watermark-overlay">[ ▶ TCD REUP TOOL ]</div>
+          <!-- Log lines will be appended here -->
+        </div>
+      </div>
+
+      <!-- Right Column: API Quota & Video Queue -->
+      <div class="right-column">
+        <!-- API Quota Card -->
+        <div class="cyber-card quota-card">
+          <div class="quota-row">
+            <div class="stat-group">
+              <span class="stat-label">Kho API Tổng</span>
+              <span class="stat-value cyan" id="stat-pool-total">0</span>
+            </div>
+            <div class="stat-group">
+              <span class="stat-label">API Còn Lại</span>
+              <span class="stat-value" id="stat-pool-remaining" style="color: var(--emerald);">0</span>
+            </div>
+            <div class="stat-group">
+              <span class="stat-label">Key Rate Limit</span>
+              <span class="stat-value" id="stat-key-dead" style="color: var(--amber);">(0)</span>
+            </div>
+          </div>
+          <button id="btn-open-api-pool" class="btn btn-primary" style="width: 100%;">🔑 Quản Lý API Keys</button>
+        </div>
+
+        <!-- Download & Processing Queue -->
+        <div class="cyber-card queue-card">
+          <div class="queue-header">Hàng chờ tải & Render VP9</div>
+          <div class="queue-body">
+            <table class="cyber-table" id="table-queue">
+              <thead>
+                <tr>
+                  <th>Video Title</th>
+                  <th style="width: 130px;">Tiến trình</th>
+                  <th style="width: 100px;">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody id="queue-tbody">
+                <tr>
+                  <td colspan="3" style="text-align: center; color: var(--text-dim); padding: 24px;">Chưa có video trong
+                    hàng đợi</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom App Footer -->
+  <footer class="app-footer">
+    <!-- TikTok Controls -->
+    <div class="footer-section">
+      <span style="font-size: 12px; font-weight: 700; color: var(--cyan); margin-right: 4px;">🎵 TikTok</span>
+      <label class="checkbox-label">
+        <input type="checkbox" id="chk-auto-upload-tiktok" checked>
+        <span>Tự động đăng</span>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="chk-only-shorts" checked>
+        <span>Chỉ Short</span>
+      </label>
+      <button id="btn-open-tiktok-config" class="btn btn-secondary btn-sm">Cấu hình TikTok</button>
+      <button id="btn-open-license" class="btn btn-amber btn-sm">📜 Điều khoản / Bản quyền</button>
+    </div>
+
+    <!-- Center Info -->
+    <div style="font-size: 11px; color: var(--text-dim);">
+      Hạn dùng: <span style="color: var(--amber); font-weight: 600;"> Vĩnh viễn</span>
+    </div>
+
+    <!-- Telegram Controls -->
+    <div class="footer-section">
+      <span style="font-size: 12px; font-weight: 700; color: #38bdf8; margin-right: 4px;">📢 Telegram</span>
+      <label class="checkbox-label">
+        <input type="checkbox" id="chk-telegram-enabled">
+        <span>Gửi thông báo</span>
+      </label>
+      <button id="btn-open-telegram-config" class="btn btn-secondary btn-sm">Liên kết</button>
+      <button id="btn-test-tele" class="btn btn-secondary btn-sm">Test Tele</button>
+    </div>
+  </footer>
+
+  <!-- ======================================================== -->
+  <!-- MODALS -->
+  <!-- ======================================================== -->
+
+  <!-- Modal 1: Create Project -->
+  <div class="modal-overlay" id="modal-create-project">
+    <div class="modal-window" style="width: 420px;">
+      <div class="modal-header">
+        <div class="modal-title">✨ Tạo dự án mới</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label style="font-size: 12px; color: var(--text-muted);">Nhập tên dự án:</label>
+        <input type="text" id="input-new-project-name" class="text-input" placeholder="Ví dụ: Dự án 123456789...">
+      </div>
+      <div class="modal-footer">
+        <button id="btn-confirm-create-project" class="btn btn-emerald">Tạo ngay</button>
+        <button class="btn btn-secondary modal-close-trigger">Hủy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Manage Projects -->
+  <div class="modal-overlay" id="modal-manage-projects">
+    <div class="modal-window" style="width: 520px;">
+      <div class="modal-header">
+        <div class="modal-title">⚙ Quản lý danh sách dự án</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Danh sách dự án hiện có:</div>
+        <div
+          style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <th>Tên Dự Án</th>
+                <th style="width: 90px; text-align: center;">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="projects-manage-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="cyber-card" style="padding: 12px; margin-top: 6px;">
+          <div style="font-size: 12px; font-weight: 700; color: var(--cyan); margin-bottom: 6px;">Thông tin dự án đang
+            chọn: <span id="lbl-active-project-name" style="color: #fff;"></span></div>
+          <div style="font-size: 11px; color: var(--text-muted);" id="lbl-active-project-stats">Số kênh: 0</div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" id="lbl-active-project-schedule">Lịch
+            tự động: 24/7</div>
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-goto-schedule-analysis" class="btn btn-primary" style="flex: 1;">📊 Phân tích lịch tự
+            động</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary modal-close-trigger">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Choose Schedule Analysis Mode -->
+  <div class="modal-overlay" id="modal-schedule-mode">
+    <div class="modal-window" style="width: 560px;">
+      <div class="modal-header">
+        <div class="modal-title">⏰ Chọn chế độ phân tích giờ đăng video</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+          Chọn cách gom khung giờ phân tích lịch đăng video cho các kênh YouTube:
+        </div>
+
+        <!-- Mode Multi -->
+        <div class="schedule-option-card selected" id="opt-schedule-multi" data-mode="multi">
+          <span class="option-badge">KHUYÊN DÙNG</span>
+          <div class="option-title">📊 TÁCH CỤM (Khuyên dùng)</div>
+          <div class="option-desc">Gộp các video gần nhau &lt; 60 phút thành 1 cụm. Tạo nhiều khung giờ riêng biệt để mở
+            GPM chính xác khi có video mới.</div>
+          <div class="option-example">VD: Khung 1 (11:00-12:30), Khung 2 (18:00-19:30)...</div>
+        </div>
+
+        <!-- Mode Single -->
+        <div class="schedule-option-card" id="opt-schedule-single" data-mode="single">
+          <div class="option-title">🔗 Gộp tất cả</div>
+          <div class="option-desc">Gộp TẤT CẢ video thành 1 khung giờ duy nhất. Chạy liên tục từ video sớm nhất đến muộn
+            nhất.</div>
+          <div class="option-example">VD: 1 khung 10:00-22:00 (chạy thông suốt cả ngày)</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-run-schedule-analysis" class="btn btn-emerald">Phân tích ngay</button>
+        <button class="btn btn-secondary modal-close-trigger">Hủy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: API Pool Management -->
+  <div class="modal-overlay" id="modal-api-pool">
+    <div class="modal-window large">
+      <div class="modal-header">
+        <div class="modal-title">🔑 Quản Lý API — Chia API YouTube cho tất cả TCD</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="pool-layout">
+          <!-- Sidebar Actions -->
+          <div class="pool-sidebar">
+            <div class="pool-action-card">
+              <div style="font-size: 12px; font-weight: 700; color: var(--cyan);">Kho API Tổng</div>
+              <div style="font-size: 11px; color: var(--text-muted);">
+                Tổng: <span id="pool-modal-total" style="color: #fff; font-weight: bold;">0</span> |
+                Còn lại: <span id="pool-modal-rem" style="color: var(--emerald); font-weight: bold;">0</span>
+              </div>
+              <button id="btn-open-edit-pool" class="btn btn-amber btn-sm" style="margin-top: 4px;">✏ Sửa kho
+                API</button>
+            </div>
+
+            <div class="pool-action-card">
+              <label style="font-size: 11px; color: var(--text-muted);">Số API cho mỗi kênh:</label>
+              <input type="number" id="input-keys-per-channel" class="threads-input" value="100"
+                style="width: 100%; text-align: left; padding: 6px 10px;">
+            </div>
+
+            <div class="pool-action-card">
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">Thao
+                tác</div>
+              <button id="btn-pool-refresh" class="btn btn-secondary btn-sm">🔍 Quét TCD & Kiểm tra</button>
+              <button id="btn-pool-recover-garbage" class="btn btn-ruby btn-sm">🗑 Thu hồi API rác</button>
+              <button id="btn-pool-distribute-missing" class="btn btn-primary btn-sm">📥 Chia cho kênh thiếu</button>
+              <button id="btn-pool-distribute-all" class="btn btn-emerald btn-sm">🔄 Chia lại TOÀN BỘ</button>
+              <button id="btn-pool-clean-bak" class="btn btn-secondary btn-sm">🧹 Xóa file backup (.bak)</button>
+            </div>
+
+            <div style="font-size: 11px; color: var(--text-dim);" id="lbl-last-distribution">
+              Lần chia gần nhất: Chưa thực hiện
+            </div>
+          </div>
+
+          <!-- Real-time Scan Table -->
+          <div class="pool-table-container">
+            <table class="cyber-table" id="table-scanned-channels">
+              <thead>
+                <tr>
+                  <th style="width: 40px;">#</th>
+                  <th style="width: 130px;">Folder TCD</th>
+                  <th>URL Kênh</th>
+                  <th style="width: 90px;">Dự án</th>
+                  <th style="width: 70px; text-align: center;">API</th>
+                  <th style="width: 90px;">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody id="scanned-channels-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary modal-close-trigger">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Edit Raw API Master Pool -->
+  <div class="modal-overlay" id="modal-edit-pool">
+    <div class="modal-window" style="width: 600px;">
+      <div class="modal-header">
+        <div class="modal-title">✏ Chỉnh sửa kho API Tổng (1 Key / Dòng)</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="textarea-master-pool"
+          style="width: 100%; height: 260px; background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 10px; font-family: monospace; font-size: 11px; outline: none;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-master-pool" class="btn btn-emerald">Lưu kho API</button>
+        <button class="btn btn-secondary modal-close-trigger">Hủy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 6: TikTok Upload Configuration (Redesigned with Full Profiles & Resolution / 61s Mode) -->
+  <div class="modal-overlay" id="modal-tiktok-config">
+    <div class="modal-window large" style="width: 1050px;">
+      <div class="modal-header">
+        <div class="modal-title">🎵 Cấu hình TikTok Upload — Gán Profile GPM & Chế Độ Tải/Edit Video</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Guidelines banner -->
+        <div
+          style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid var(--cyan); padding: 10px 14px; border-radius: 4px; font-size: 11.5px; line-height: 1.5; color: #cbd5e1;">
+          <div>• <b>Gán Profile GPM:</b> Hệ thống đã nạp tất cả profiles từ GPMLogin. Bạn có thể chọn bất kỳ profile nào
+            cho từng kênh YouTube (1 Profile GPM có thể gắn cho nhiều kênh).</div>
+          <div>• <b>Chất lượng tải:</b> <b>720p (siêu tốc, tối ưu Shorts)</b> hoặc <b>1080p (Full HD nét)</b>.</div>
+          <div>• <b>Chế độ xử lý:</b> <b>Tải up luôn</b> (trực tiếp) hoặc <b>Edit đủ 1 phút 1 giây (≥61s) dùng
+              FFmpeg</b> để đạt chuẩn quỹ sáng tạo TikTok Creator Rewards.</div>
+        </div>
+
+        <!-- Global controls bar -->
+        <div
+          style="display: flex; gap: 14px; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.6); padding: 10px 14px; border-radius: var(--radius-sm);">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+              <span>Timeout chờ đăng (s):</span>
+              <input type="number" id="input-tiktok-upload-timeout" class="threads-input" value="30">
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+              <span>Delay video tiếp (s):</span>
+              <input type="number" id="input-tiktok-next-delay" class="threads-input" value="180">
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+              <span>Caption:</span>
+              <select id="select-caption-mode" class="select-control">
+                <option value="keep_title">Giữ nguyên Title</option>
+                <option value="custom">Tùy biến Caption</option>
+              </select>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span id="lbl-gpm-profiles-count" style="font-size: 11px; color: var(--emerald); font-weight: 600;">Đã nạp 0
+              profiles</span>
+            <button id="btn-sync-gpm" class="btn btn-primary btn-sm">🔄 Quét lại GPM (Port 9495)</button>
+          </div>
+        </div>
+
+        <!-- Per-Channel Mapping Table -->
+        <div
+          style="border: 1px solid var(--border-color); border-radius: var(--radius-sm); max-height: 380px; overflow-y: auto; background: rgba(15, 23, 42, 0.5);">
+          <table class="cyber-table" id="table-tiktok-channel-settings">
+            <thead>
+              <tr>
+                <th style="width: 40px;">#</th>
+                <th>Kênh YouTube</th>
+                <th style="width: 250px;">GPM Profile TikTok (1-N)</th>
+                <th style="width: 150px;">Chất Lượng Tải</th>
+                <th style="width: 230px;">Chế Độ Xử Lý</th>
+                <th style="width: 140px; text-align: center;">Test GPM</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-tiktok-channels">
+              <!-- Dynamically rendered rows per channel -->
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-all-tiktok-config" class="btn btn-emerald">💾 Lưu tất cả cấu hình</button>
+        <button class="btn btn-secondary modal-close-trigger">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 7: Telegram Configuration -->
+  <div class="modal-overlay" id="modal-telegram-config">
+    <div class="modal-window" style="width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title">📢 Cấu hình Telegram Notifier</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div>
+          <label style="font-size: 11px; color: var(--text-muted);">Bot Token:</label>
+          <input type="text" id="input-telegram-token" class="text-input" placeholder="789012345:AAF...">
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--text-muted);">Chat IDs (cách nhau bởi dấu phẩy):</label>
+          <input type="text" id="input-telegram-chat-ids" class="text-input" placeholder="123456789, -987654321">
+        </div>
+        <div>
+          <label class="checkbox-label">
+            <input type="checkbox" id="modal-chk-telegram-enabled">
+            <span>Kích hoạt thông báo tự động khi đăng xong</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-telegram" class="btn btn-emerald">Lưu cấu hình</button>
+        <button class="btn btn-secondary modal-close-trigger">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 8: License & Info -->
+  <div class="modal-overlay" id="modal-license">
+    <div class="modal-window" style="width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title">📜 Thông tin bản quyền TCD REUP TOOL</div>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="cyber-card" style="padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+          <div><b>Bản quyền:</b> TCD REUP TOOL v1.0.0 — YouTube to TikTok Automation</div>
+          <div><b>Tác giả:</b> Thanh Code Dao (SĐT / Zalo: @thanhcodedao)</div>
+          <div><b>Trạng thái:</b> <span style="color: var(--emerald); font-weight: bold;">ĐÃ KÍCH HOẠT VĨNH VIỄN</span>
+          </div>
+          <div><b>Thời hạn License:</b> Vĩnh viễn</div>
+          <div><b>HWID:</b> <code>UNLIMITED</code></div>
+          <div><b>Tính năng:</b> Quản lý đa dự án, GPM Profile 1-to-N, Tải 720p/1080p, Edit đủ 61s FFmpeg, Master API
+            Pool.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary modal-close-trigger">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,13 @@
+{
+    "name": "23523523",
+    "channels": [],
+    "threads": 500,
+    "use_proxy": false,
+    "proxy_region": "IP - Nhật Bản",
+    "auto_upload_tiktok": true,
+    "only_shorts": true,
+    "telegram_enabled": true,
+    "schedule": [],
+    "schedule_mode": "multi",
+    "queue": []
+}
