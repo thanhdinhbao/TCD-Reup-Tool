@@ -223,10 +223,11 @@ class TikTokUploader:
                 return False
         return False
 
-    def check_and_click_turn_on(self, driver, timeout: int = 6) -> bool:
+    def check_and_click_turn_on(self, driver, timeout: float = 1.5) -> bool:
         """
         Sau khi chọn video, kiểm tra xem có popup hiển thị nút 'Turn on'
         (data-type='primary', data-size='medium', Button__root--size-medium) hay không và nhấn nút.
+        Tối ưu timeout xuống 1.5s (poll mỗi 0.2s) để tránh lãng phí thời gian khi không có popup.
         """
         selectors = [
             "button.Button__root--size-medium.Button__root--type-primary",
@@ -247,24 +248,24 @@ class TikTokUploader:
                         if el.is_displayed():
                             logger.info(f"Phát hiện nút 'Turn on' ({sel}), đang nhấn...")
                             driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", el)
-                            time.sleep(0.3)
+                            time.sleep(0.1)
                             try:
                                 el.click()
                             except Exception:
                                 driver.execute_script("arguments[0].click();", el)
                             logger.info("Đã nhấn nút 'Turn on' thành công!")
-                            time.sleep(0.8)
+                            time.sleep(0.2)
                             return True
                 except Exception:
                     pass
-            time.sleep(0.5)
+            time.sleep(0.2)
         logger.debug("Không thấy nút 'Turn on' (hoặc popup không xuất hiện).")
         return False
 
-    def press_escape(self, driver, times: int = 3) -> None:
-        """Nhấn phím ESC liên tiếp (mặc định 3 lần) để tắt các modal/tooltip thừa."""
-        logger.info(f"Nhấn phím ESC {times} lần để đóng các dialog/overlay thừa...")
-        for i in range(times):
+    def press_escape(self, driver, times: int = 2) -> None:
+        """Nhấn phím ESC (mặc định 2 lần) để tắt các modal/tooltip thừa với độ trễ tối thiểu."""
+        logger.debug(f"Nhấn phím ESC {times} lần để đóng các dialog/overlay thừa...")
+        for _ in range(times):
             try:
                 driver.switch_to.active_element.send_keys(Keys.ESCAPE)
             except Exception:
@@ -272,11 +273,12 @@ class TikTokUploader:
                     driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
                 except Exception:
                     pass
-            time.sleep(0.3)
+            time.sleep(0.1)
 
-    def check_and_click_post_now(self, driver, timeout: int = 15) -> bool:
+    def check_and_click_post_now(self, driver, timeout: float = 2.5) -> bool:
         """
         Sau khi nhấn Post, đợi và nhấn nút xác nhận 'Post now' (TUXButton-primary) nếu có dialog xác nhận xuất hiện.
+        Tối ưu timeout xuống 2.5s (poll mỗi 0.25s) thay vì treo 12-15s khi không có popup.
         """
         selectors = [
             "button.TUXButton.TUXButton--primary",
@@ -298,24 +300,25 @@ class TikTokUploader:
                         if el.is_displayed():
                             logger.info(f"Phát hiện nút xác nhận 'Post now' ({sel}), đang nhấn...")
                             driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", el)
-                            time.sleep(0.3)
+                            time.sleep(0.1)
                             try:
                                 el.click()
                             except Exception:
                                 driver.execute_script("arguments[0].click();", el)
                             logger.info("Đã nhấn nút 'Post now' (TUXButton) thành công!")
-                            time.sleep(1.0)
+                            time.sleep(0.3)
                             return True
                 except Exception:
                     pass
-            time.sleep(0.5)
+            time.sleep(0.25)
         logger.debug("Không thấy nút popup 'Post now' (video có thể đã được đăng trực tiếp).")
         return False
 
-    def click_post_button(self, driver, timeout: int = 25) -> bool:
+    def click_post_button(self, driver, timeout: int = 30) -> bool:
         """
         Cuộn xuống trang TikTok Studio, định vị nút Post theo data-e2e và CSS classes
         (độc lập với ngôn ngữ hiển thị), đợi video tải xong và nhấn nút Đăng.
+        Tối ưu: Polling siêu tốc mỗi 0.25s ngay khi nút chuyển sang trạng thái sẵn sàng.
         """
         post_selectors = [
             "button[data-e2e='post_video_button']",
@@ -327,13 +330,13 @@ class TikTokUploader:
         ]
 
         t_end = time.time() + timeout
-        while time.time() < t_end:
-            # 1. Cuộn trang xuống đáy để nút hiển thị trong DOM
-            try:
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            except Exception:
-                pass
+        # 1. Cuộn trang xuống đáy ngay lập tức để nút hiển thị trong DOM
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        except Exception:
+            pass
 
+        while time.time() < t_end:
             for sel in post_selectors:
                 try:
                     buttons = driver.find_elements(By.CSS_SELECTOR, sel)
@@ -345,17 +348,17 @@ class TikTokUploader:
                         aria_disabled = btn.get_attribute("aria-disabled")
                         data_disabled = btn.get_attribute("data-disabled")
                         data_loading = btn.get_attribute("data-loading")
+                        btn_class = btn.get_attribute("class") or ""
 
-                        if aria_disabled == "true" or data_disabled == "true" or data_loading == "true":
-                            logger.debug("Nút Post vẫn đang bận tải/xử lý (disabled)... Đợi thêm...")
+                        if aria_disabled == "true" or data_disabled == "true" or data_loading == "true" or "disabled" in btn_class.lower():
                             continue
 
-                        # Cuộn nút vào giữa màn hình
+                        # Cuộn nút vào giữa màn hình và click ngay lập tức
                         driver.execute_script(
                             "arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});",
                             btn
                         )
-                        time.sleep(0.5)
+                        time.sleep(0.1)
 
                         # Nhấn nút (hỗ trợ cả click thông thường và JS click dự phòng)
                         try:
@@ -368,7 +371,7 @@ class TikTokUploader:
                 except Exception as e:
                     logger.debug(f"Selector {sel} lookup error: {e}")
 
-            time.sleep(1.0)
+            time.sleep(0.25)
 
         logger.warning("Hết thời gian chờ nút Post TikTok Studio (hoặc nút chưa sẵn sàng).")
         return False
@@ -378,35 +381,36 @@ class TikTokUploader:
         Sau khi post xong 1 video, đưa trình duyệt quay lại trang upload TikTok Studio
         (https://www.tiktok.com/tiktokstudio/upload?from=webapp&tab=video)
         để sẵn sàng 0s cho lần đăng video tiếp theo.
+        Tối ưu: Polling chủ động tìm nút 'Upload another' ngay lập tức thay vì sleep cứng 2.5s.
         """
         logger.info("🔄 Đang chuyển trình duyệt quay lại trang Upload TikTok Studio để tối ưu thời gian cho lần sau...")
         try:
-            # 1. Đợi 2.5s để request đăng hoàn tất trên server TikTok
-            time.sleep(2.5)
-
-            # 2. Thử tìm nút 'Upload another video' / 'Đăng video khác' trên modal thành công nếu có
+            # 1. Thử tìm ngay nút 'Upload another video' / 'Đăng video khác' trên modal thành công
             upload_another_selectors = [
                 "button[data-e2e*='upload_another']",
                 "button[data-e2e*='post_another']",
                 "//button[contains(., 'Upload another') or contains(., 'Đăng video khác') or contains(., 'Upload more')]",
                 "//div[contains(text(), 'Upload another') or contains(text(), 'Đăng video khác')]"
             ]
-            for sel in upload_another_selectors:
-                try:
-                    if sel.startswith("//"):
-                        btns = driver.find_elements(By.XPATH, sel)
-                    else:
-                        btns = driver.find_elements(By.CSS_SELECTOR, sel)
-                    for b in btns:
-                        if b.is_displayed():
-                            b.click()
-                            logger.info("Đã bấm nút 'Upload another video' trên popup thành công.")
-                            time.sleep(1.0)
-                            return True
-                except Exception:
-                    pass
+            t_wait = time.time() + 2.0
+            while time.time() < t_wait:
+                for sel in upload_another_selectors:
+                    try:
+                        if sel.startswith("//"):
+                            btns = driver.find_elements(By.XPATH, sel)
+                        else:
+                            btns = driver.find_elements(By.CSS_SELECTOR, sel)
+                        for b in btns:
+                            if b.is_displayed():
+                                b.click()
+                                logger.info("Đã bấm nút 'Upload another video' trên popup thành công.")
+                                time.sleep(0.2)
+                                return True
+                    except Exception:
+                        pass
+                time.sleep(0.2)
 
-            # 3. Điều hướng trực tiếp về trang upload
+            # 2. Điều hướng trực tiếp về trang upload
             driver.get(TIKTOK_UPLOAD_URL)
             logger.info("Đã chuyển tab trình duyệt quay lại trang Upload TikTok Studio sẵn sàng!")
             return True
@@ -488,12 +492,10 @@ class TikTokUploader:
             except Exception:
                 pass
 
-            time.sleep(1.0)
-
             # 2. Locate file input element
             file_input = None
             try:
-                file_input = WebDriverWait(driver, 8).until(
+                file_input = WebDriverWait(driver, 6).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
                 )
             except Exception:
@@ -514,23 +516,23 @@ class TikTokUploader:
             logger.info(f"Đang truyền đường dẫn file vào TikTok Studio: {abs_path}")
             file_input.send_keys(abs_path)
 
-            # Wait for file upload to register
-            time.sleep(2.0)
+            # Đợi ngắn 0.4s để TikTok React state nhận file
+            time.sleep(0.4)
 
-            # 1. Sau khi chọn video: Kiểm tra nút 'Turn on' (nếu có popup hỏi bản quyền/âm thanh/phụ đề)
-            self.check_and_click_turn_on(driver, timeout=6)
+            # 1. Sau khi chọn video: Kiểm tra nhanh nút 'Turn on' (nếu có popup hỏi bản quyền/âm thanh/phụ đề)
+            self.check_and_click_turn_on(driver, timeout=1.5)
 
-            # 2. Nhấn phím ESC 3 lần để tắt triệt để các modal/tooltip thừa
-            self.press_escape(driver, times=3)
+            # 2. Nhấn phím ESC để tắt triệt để các modal/tooltip thừa
+            self.press_escape(driver, times=2)
 
-            # 3. Fill caption if provided
+            # 3. Fill caption if provided (điền ngay trong lúc TikTok xử lý video ở background)
             if caption:
                 try:
                     caption_boxes = driver.find_elements(By.CSS_SELECTOR, "div[contenteditable='true'], .public-DraftEditor-content, textarea")
                     if caption_boxes:
                         box = caption_boxes[0]
                         box.click()
-                        time.sleep(0.3)
+                        time.sleep(0.1)
                         clean_caption = caption.strip()
                         if "#" not in clean_caption:
                             clean_caption += " #fyp #trending #viral"
@@ -543,11 +545,11 @@ class TikTokUploader:
             # 4. Auto post
             if auto_post:
                 logger.info("Chế độ Tự động đăng BẬT: Đang cuộn xuống tìm nút Post (data-e2e='post_video_button')...")
-                post_ok = self.click_post_button(driver, timeout=25)
+                post_ok = self.click_post_button(driver, timeout=30)
                 if post_ok:
                     logger.info("Đã bấm nút ĐĂNG (Post) video lên TikTok Studio thành công.")
-                    # 5. Sau đó kiểm tra và nhấn nút xác nhận 'Post now' (TUXButton--primary) nếu có
-                    self.check_and_click_post_now(driver, timeout=12)
+                    # 5. Sau đó kiểm tra nhanh nút xác nhận 'Post now' (TUXButton--primary) nếu có
+                    self.check_and_click_post_now(driver, timeout=2.5)
 
                     # 6. Quay trở lại trang upload ngay để tối ưu thời gian cho video kế tiếp (0s trễ)
                     self.reset_to_upload_page(driver)
