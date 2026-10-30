@@ -383,12 +383,9 @@ class YouTubeDownloader:
                     if self._native_range_download(mobile_url, output_path, num_chunks=12):
                         return True
 
-        # Ưu tiên chuẩn nén AV1 (av01) giúp giảm 35% - 50% dung lượng tải về và tăng tốc độ tải
+        # Định dạng tải siêu tốc: Ưu tiên stream MP4 progressive (Format 22/18) hoặc video H.264/AV1 720p + AAC
         if quality == "1080":
             format_str = (
-                "bestvideo[vcodec^=av01][height<=1080]+bestaudio[ext=m4a]/"
-                "bestvideo[vcodec^=av01][width<=1920][height<=1920]+bestaudio[ext=m4a]/"
-                "bestvideo[vcodec^=av01]+bestaudio/"
                 "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
                 "bestvideo[height<=1080]+bestaudio/"
                 "best[height<=1080][ext=mp4]/"
@@ -397,19 +394,16 @@ class YouTubeDownloader:
             )
         elif quality == "360":
             format_str = (
-                "bestvideo[vcodec^=av01][height<=360]+bestaudio[ext=m4a]/"
-                "bestvideo[vcodec^=av01][width<=640][height<=640]+bestaudio[ext=m4a]/"
                 "18/"
-                "bestvideo[height<=360]+bestaudio/"
-                "best[height<=360]/"
+                "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/"
+                "best[height<=360][ext=mp4]/"
                 "best"
             )
         else:
             format_str = (
-                "bestvideo[vcodec^=av01][height<=720]+bestaudio[ext=m4a]/"
-                "bestvideo[vcodec^=av01][width<=1280][height<=1280]+bestaudio[ext=m4a]/"
-                "bestvideo[vcodec^=av01]+bestaudio/"
+                "22/"
                 "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/"
+                "bestvideo[height<=720]+bestaudio[ext=m4a]/"
                 "bestvideo[height<=720]+bestaudio/"
                 "best[height<=720][ext=mp4]/"
                 "best[height<=720]/"
@@ -424,7 +418,7 @@ class YouTubeDownloader:
             "overwrites": True,
             "continuedl": True,
             "nocheckcertificate": True,
-            "nopart": True,
+            "noplaylist": True,
             "concurrent_fragment_downloads": 16,
             "buffersize": 16 * 1024 * 1024,
             "http_chunk_size": 10 * 1024 * 1024,
@@ -441,49 +435,23 @@ class YouTubeDownloader:
             opts["progress_hooks"] = [hook]
 
         try:
-            ydl = self._get_ydl_instance(opts) or yt_dlp.YoutubeDL(opts)
-            info = ydl.extract_info(video_url, download=False)
-            if info:
-                req_formats = info.get("requested_formats")
-                # Case A: Separate video + audio streams
-                if req_formats and len(req_formats) == 2:
-                    v_fmt = req_formats[0]
-                    a_fmt = req_formats[1]
-                    v_url = v_fmt.get("url")
-                    a_url = a_fmt.get("url")
-                    v_size = v_fmt.get("filesize") or v_fmt.get("filesize_approx") or 0
-                    a_size = a_fmt.get("filesize") or a_fmt.get("filesize_approx") or 0
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([video_url])
 
-                    if v_url and a_url and v_url.startswith("http") and a_url.startswith("http"):
-                        temp_v = f"{output_path}.temp_video.mp4"
-                        temp_a = f"{output_path}.temp_audio.m4a"
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as dl_pool:
-                            f_v = dl_pool.submit(self._fast_chunk_download, v_url, v_size, temp_v, 12)
-                            f_a = dl_pool.submit(self._fast_chunk_download, a_url, a_size, temp_a, 4)
-                            v_ok = f_v.result()
-                            a_ok = f_a.result()
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+                return True
 
-                        if v_ok and a_ok and os.path.exists(temp_v) and os.path.exists(temp_a):
-                            ffmpeg_bin = self._find_ffmpeg()
-                            cmd = [ffmpeg_bin, "-y", "-i", temp_v, "-i", temp_a, "-c", "copy", output_path]
-                            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            for p in [temp_v, temp_a]:
-                                try: os.remove(p)
-                                except: pass
-                            if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
-                                return True
+            alt_path = f"{output_path}.mp4"
+            if os.path.exists(alt_path) and os.path.getsize(alt_path) > 1024:
+                try:
+                    if os.path.exists(output_path):
+                        os.remove(output_path)
+                    os.rename(alt_path, output_path)
+                    return True
+                except Exception:
+                    return True
 
-                # Case B: Single progressive stream (MP4 direct)
-                single_url = info.get("url")
-                single_size = info.get("filesize") or info.get("filesize_approx") or 0
-                if single_url and single_url.startswith("http"):
-                    prog_ok = self._fast_chunk_download(single_url, single_size, output_path, 12)
-                    if prog_ok and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
-                        return True
-
-            # Fallback to standard yt-dlp download if chunk download not possible
-            ydl.download([video_url])
-            return True
+            return False
         except Exception as e:
             logger.error(f"Failed to download video {video_url}: {e}")
             return False

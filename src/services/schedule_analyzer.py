@@ -231,9 +231,12 @@ class YouTubeScheduleAnalyzer:
     ) -> List[Dict[str, str]]:
         """
         Main entry point for schedule analysis.
-        mode: 'multi' (Tách cụm) or 'single' (Gộp tất cả)
+        mode: 'multi' (Tách cụm), 'single' (Gộp tất cả), or 'all_time' (Quét tất cả thời gian 24/7)
         channel_key_map: optional mapping {channel_url: [api_keys]} for strict per-channel key isolation.
         """
+        if mode == "all_time":
+            return [{"start": "00:00", "end": "23:59"}]
+
         minutes = self._extract_times(channel_urls, channel_key_map=channel_key_map)
         if mode == "multi":
             return self._cluster_times_multi(minutes)

@@ -17,14 +17,14 @@ class ScheduleModeDialog(QDialog):
     """
     Modal dialog matching Image 2:
     '📊 Chọn chế độ phân tích'
-    Allows choosing between 'TÁCH CỤM' and 'Gộp tất cả'.
+    Allows choosing between 'TÁCH CỤM', 'Gộp tất cả' and 'Quét tất cả thời gian'.
     """
     def __init__(self, project_name: str, parent=None):
         super().__init__(parent)
         self.project_name = project_name
-        self.selected_mode = "multi"  # 'multi' or 'single'
+        self.selected_mode = "multi"  # 'multi', 'single', or 'all_time'
         self.setWindowTitle("📊 Chọn chế độ phân tích")
-        self.setFixedSize(520, 380)
+        self.setFixedSize(520, 480)
         self.setStyleSheet(TCD_NAVY_QSS)
         self._setup_ui()
 
@@ -86,6 +86,26 @@ class ScheduleModeDialog(QDialog):
         c2_layout.addWidget(c2_desc)
         layout.addWidget(self._card2)
 
+        self._card3 = QFrame()
+        self._card3.setCursor(Qt.PointingHandCursor)
+        self._card3.mousePressEvent = lambda e: self._select_mode("all_time")
+        c3_layout = QVBoxLayout(self._card3)
+        c3_layout.setContentsMargins(14, 12, 14, 12)
+        c3_layout.setSpacing(6)
+
+        c3_title = QLabel("<b style='font-size:14px; color:#34D399;'>⏰ Quét tất cả thời gian (24/7)</b>")
+        c3_layout.addWidget(c3_title)
+
+        c3_desc = QLabel(
+            "Chạy liên tục <b>toàn bộ thời gian (00:00 - 23:59)</b>, không giới hạn khung giờ. "
+            "Tự động quét và đăng ngay lập tức bất cứ lúc nào kênh có video mới.<br>"
+            "<span style='color:#94A3B8;'>VD: 1 khung 00:00-23:59 (chạy 24/24 cả ngày)</span>"
+        )
+        c3_desc.setWordWrap(True)
+        c3_desc.setStyleSheet("color:#CBD5E1; font-size:11px; line-height:1.4;")
+        c3_layout.addWidget(c3_desc)
+        layout.addWidget(self._card3)
+
         # Style Cards initially
         self._update_cards_style()
 
@@ -117,9 +137,15 @@ class ScheduleModeDialog(QDialog):
         if self.selected_mode == "multi":
             self._card1.setStyleSheet(active_style)
             self._card2.setStyleSheet(idle_style)
+            self._card3.setStyleSheet(idle_style)
+        elif self.selected_mode == "all_time":
+            self._card1.setStyleSheet(idle_style)
+            self._card2.setStyleSheet(idle_style)
+            self._card3.setStyleSheet(active_style)
         else:
             self._card1.setStyleSheet(idle_style)
             self._card2.setStyleSheet(active_style)
+            self._card3.setStyleSheet(idle_style)
 
 
 class ScheduleManagerDialog(QDialog):

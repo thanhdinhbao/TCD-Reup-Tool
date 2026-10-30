@@ -255,7 +255,12 @@ class ManageProjectsDialog(QDialog):
         self._update_selected_info()
 
         slots_str = ", ".join(f"{s['start']}-{s['end']}" for s in computed_schedules)
-        mode_name = "TÁCH CỤM (< 60p)" if mode == "multi" else "GỘP TẤT CẢ"
+        if mode == "all_time":
+            mode_name = "QUÉT TẤT CẢ THỜI GIAN (24/7)"
+        elif mode == "multi":
+            mode_name = "TÁCH CỤM (< 60p)"
+        else:
+            mode_name = "GỘP TẤT CẢ"
         QMessageBox.information(
             self, "Phân Tích Thành Công",
             f"Đã phân tích lịch đăng video theo chế độ [{mode_name}]:\n\n"

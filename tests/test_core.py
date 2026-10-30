@@ -295,6 +295,13 @@ class TestScheduleAnalyzer(unittest.TestCase):
         clusters = analyzer._cluster_times_single(minutes)
         self.assertEqual(len(clusters), 1)
 
+    def test_analyze_all_time(self):
+        analyzer = YouTubeScheduleAnalyzer()
+        schedules = analyzer.analyze([], mode="all_time")
+        self.assertEqual(len(schedules), 1)
+        self.assertEqual(schedules[0]["start"], "00:00")
+        self.assertEqual(schedules[0]["end"], "23:59")
+
     def test_get_schedule_status_all_day(self):
         # Empty schedule runs all day
         status = YouTubeScheduleAnalyzer.get_schedule_status([])

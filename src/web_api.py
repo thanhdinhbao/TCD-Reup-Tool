@@ -231,7 +231,12 @@ class WebBridgeApi:
         self._project_manager.save_project(proj, pdata)
 
         slots_str = ", ".join(f"{s['start']}-{s['end']}" for s in schedules) if schedules else "Chạy 24/7"
-        mode_label = "TÁCH CỤM (Khuyên dùng)" if mode == "multi" else "GỘP TẤT CẢ"
+        if mode == "all_time":
+            mode_label = "QUÉT TẤT CẢ THỜI GIAN (24/7)"
+        elif mode == "multi":
+            mode_label = "TÁCH CỤM (Khuyên dùng)"
+        else:
+            mode_label = "GỘP TẤT CẢ"
         self.emit_log(f"⏰ Phân tích lịch đăng thành công chế độ [{mode_label}]. Tìm thấy {len(schedules)} khung giờ: {slots_str}")
         return {
             "success": True,
@@ -612,8 +617,6 @@ class WebBridgeApi:
                     self.emit_log(f"✅ [{idx+1}/{total}] [{used_engine}: {t_scan:.2f}s] {key_badge} Tìm thấy {len(videos)} video từ: {ch_url}!")
                 else:
                     self.emit_log(f"⚠️ Kênh '{ch_url}' {key_badge} hiện KHÔNG CÓ video công khai nào trên YouTube (0 video). Vui lòng thêm video lên kênh hoặc đổi kênh khác!")
-                    if self._telegram.is_enabled():
-                        self._telegram.send_alert(f"⚠️ <b>Kênh không có video</b>\nKênh: <code>{ch_url}</code> {key_badge} hiện có 0 video công khai.")
                     continue
 
                 # Lọc bỏ các video đã tải/đăng trước đó để tránh trùng lặp

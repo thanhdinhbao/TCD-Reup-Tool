@@ -314,11 +314,44 @@ class TikTokUploader:
         logger.debug("Không thấy nút popup 'Post now' (video có thể đã được đăng trực tiếp).")
         return False
 
-    def click_post_button(self, driver, timeout: int = 30) -> bool:
+    def fill_caption(self, driver, caption: str) -> bool:
+        """
+        Tìm khung soạn thảo caption trên TikTok Studio và điền caption kèm hashtags.
+        Hỗ trợ nhiều loại selector (.public-DraftEditor-content, contenteditable, textarea).
+        """
+        if not caption:
+            return True
+        try:
+            caption_selectors = [
+                ".public-DraftEditor-content",
+                "div[contenteditable='true']",
+                "div[data-placeholder*='caption']",
+                "textarea[placeholder*='caption']",
+                "textarea",
+            ]
+            for sel in caption_selectors:
+                boxes = driver.find_elements(By.CSS_SELECTOR, sel)
+                for box in boxes:
+                    if box.is_displayed():
+                        box.click()
+                        time.sleep(0.1)
+                        clean_caption = caption.strip()
+                        if "#" not in clean_caption:
+                            clean_caption += " #fyp #trending #viral"
+                        box.send_keys(Keys.CONTROL + "a")
+                        box.send_keys(Keys.BACKSPACE)
+                        box.send_keys(clean_caption)
+                        logger.info(f"Đã điền caption thành công: {clean_caption[:40]}...")
+                        return True
+        except Exception as e:
+            logger.debug(f"Lỗi khi điền caption: {e}")
+        return False
+
+    def click_post_button(self, driver, timeout: int = 30, caption: str = "") -> bool:
         """
         Cuộn xuống trang TikTok Studio, định vị nút Post theo data-e2e và CSS classes
         (độc lập với ngôn ngữ hiển thị), đợi video tải xong và nhấn nút Đăng.
-        Tối ưu: Polling siêu tốc mỗi 0.25s ngay khi nút chuyển sang trạng thái sẵn sàng.
+        Tối ưu: Trong thời gian chờ nút Post sẵn sàng, chủ động tìm và điền caption song song.
         """
         post_selectors = [
             "button[data-e2e='post_video_button']",
@@ -329,7 +362,9 @@ class TikTokUploader:
             "button.Button__root--type-primary",
         ]
 
+        caption_filled = not bool(caption)
         t_end = time.time() + timeout
+
         # 1. Cuộn trang xuống đáy ngay lập tức để nút hiển thị trong DOM
         try:
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -337,6 +372,12 @@ class TikTokUploader:
             pass
 
         while time.time() < t_end:
+            # Trong thời gian chờ nút post ấn được: Điền luôn caption nếu chưa điền
+            if not caption_filled:
+                if self.fill_caption(driver, caption):
+                    caption_filled = True
+                    logger.info("⚡ [Song song] Đã điền xong Caption trong lúc chờ nút Post sẵn sàng!")
+
             for sel in post_selectors:
                 try:
                     buttons = driver.find_elements(By.CSS_SELECTOR, sel)
@@ -352,6 +393,11 @@ class TikTokUploader:
 
                         if aria_disabled == "true" or data_disabled == "true" or data_loading == "true" or "disabled" in btn_class.lower():
                             continue
+
+                        # Đảm bảo caption đã được điền trước khi bấm Đăng
+                        if not caption_filled and caption:
+                            if self.fill_caption(driver, caption):
+                                caption_filled = True
 
                         # Cuộn nút vào giữa màn hình và click ngay lập tức
                         driver.execute_script(
@@ -516,45 +562,23 @@ class TikTokUploader:
             logger.info(f"Đang truyền đường dẫn file vào TikTok Studio: {abs_path}")
             file_input.send_keys(abs_path)
 
-            # Đợi ngắn 0.4s để TikTok React state nhận file
-            time.sleep(0.4)
-
-            # 1. Sau khi chọn video: Kiểm tra nhanh nút 'Turn on' (nếu có popup hỏi bản quyền/âm thanh/phụ đề)
-            self.check_and_click_turn_on(driver, timeout=1.5)
-
-            # 2. Nhấn phím ESC để tắt triệt để các modal/tooltip thừa
-            self.press_escape(driver, times=2)
-
-            # 3. Fill caption if provided (điền ngay trong lúc TikTok xử lý video ở background)
-            if caption:
-                try:
-                    caption_boxes = driver.find_elements(By.CSS_SELECTOR, "div[contenteditable='true'], .public-DraftEditor-content, textarea")
-                    if caption_boxes:
-                        box = caption_boxes[0]
-                        box.click()
-                        time.sleep(0.1)
-                        clean_caption = caption.strip()
-                        if "#" not in clean_caption:
-                            clean_caption += " #fyp #trending #viral"
-                        box.send_keys(Keys.CONTROL + "a")
-                        box.send_keys(Keys.BACKSPACE)
-                        box.send_keys(clean_caption)
-                except Exception as e:
-                    logger.warning(f"Lỗi điền caption: {e}")
-
-            # 4. Auto post
+            # 1. Tự động đăng & Điền caption song song ngay trong lúc video đang upload
             if auto_post:
-                logger.info("Chế độ Tự động đăng BẬT: Đang cuộn xuống tìm nút Post (data-e2e='post_video_button')...")
-                post_ok = self.click_post_button(driver, timeout=30)
+                logger.info("Chế độ Tự động đăng BẬT: Đang cuộn xuống tìm nút Post (data-e2e='post_video_button') và điền caption song song...")
+                post_ok = self.click_post_button(driver, timeout=30, caption=caption)
                 if post_ok:
                     logger.info("Đã bấm nút ĐĂNG (Post) video lên TikTok Studio thành công.")
-                    # 5. Sau đó kiểm tra nhanh nút xác nhận 'Post now' (TUXButton--primary) nếu có
+                    # 4. Sau đó kiểm tra nhanh nút xác nhận 'Post now' (TUXButton--primary) nếu có
                     self.check_and_click_post_now(driver, timeout=2.5)
 
-                    # 6. Quay trở lại trang upload ngay để tối ưu thời gian cho video kế tiếp (0s trễ)
+                    # 5. Quay trở lại trang upload ngay để tối ưu thời gian cho video kế tiếp (0s trễ)
                     self.reset_to_upload_page(driver)
                 else:
                     logger.warning("Không thể tự động bấm nút Đăng (có thể cần xác nhận thủ công hoặc video chưa xử lý xong).")
+            else:
+                # Nếu không auto_post, vẫn điền sẵn caption vào form cho người dùng
+                if caption:
+                    self.fill_caption(driver, caption)
 
             elapsed = time.perf_counter() - t_start
             logger.info(f"Tải video lên TikTok Studio thành công trong {elapsed:.2f}s!")
