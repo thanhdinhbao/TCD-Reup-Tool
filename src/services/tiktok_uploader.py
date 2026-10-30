@@ -223,101 +223,101 @@ class TikTokUploader:
                 return False
         return False
 
-    def check_and_click_turn_on(self, driver, timeout: float = 1.5) -> bool:
-        """
-        Sau khi chọn video, kiểm tra xem có popup hiển thị nút 'Turn on'
-        (data-type='primary', data-size='medium', Button__root--size-medium) hay không và nhấn nút.
-        Tối ưu timeout xuống 1.5s (poll mỗi 0.2s) để tránh lãng phí thời gian khi không có popup.
-        """
+    def check_and_click_turn_on(self, driver, timeout: float = 1.0) -> bool:
+        """Helper method kiểm tra nút Turn on (bỏ qua trong luồng chính upload_video)."""
         selectors = [
-            "button.Button__root--size-medium.Button__root--type-primary",
-            "button[data-size='medium'][data-type='primary']",
-            "button[data-size='medium'].Button__root--type-primary",
-            "//button[contains(@class, 'Button__root') and (contains(., 'Turn on') or contains(., 'Bật'))]",
             "//button[contains(., 'Turn on') or contains(., 'Bật')]",
+            "button[data-e2e*='turn_on']",
         ]
-        t_end = time.time() + timeout
-        while time.time() < t_end:
-            for sel in selectors:
-                try:
-                    if sel.startswith("//"):
-                        elements = driver.find_elements(By.XPATH, sel)
-                    else:
-                        elements = driver.find_elements(By.CSS_SELECTOR, sel)
-                    for el in elements:
-                        if el.is_displayed():
-                            logger.info(f"Phát hiện nút 'Turn on' ({sel}), đang nhấn...")
-                            driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", el)
-                            time.sleep(0.1)
-                            try:
-                                el.click()
-                            except Exception:
-                                driver.execute_script("arguments[0].click();", el)
-                            logger.info("Đã nhấn nút 'Turn on' thành công!")
-                            time.sleep(0.2)
-                            return True
-                except Exception:
-                    pass
-            time.sleep(0.2)
-        logger.debug("Không thấy nút 'Turn on' (hoặc popup không xuất hiện).")
+        for sel in selectors:
+            try:
+                btns = driver.find_elements(By.XPATH, sel) if sel.startswith("//") else driver.find_elements(By.CSS_SELECTOR, sel)
+                for b in btns:
+                    if b.is_displayed():
+                        b.click()
+                        return True
+            except Exception:
+                pass
         return False
 
-    def press_escape(self, driver, times: int = 2) -> None:
-        """Nhấn phím ESC (mặc định 2 lần) để tắt các modal/tooltip thừa với độ trễ tối thiểu."""
-        logger.debug(f"Nhấn phím ESC {times} lần để đóng các dialog/overlay thừa...")
-        for _ in range(times):
-            try:
+    def press_escape(self, driver, times: int = 1):
+        """Helper method gửi phím ESC (bỏ qua trong luồng chính upload_video)."""
+        try:
+            for _ in range(times):
                 driver.switch_to.active_element.send_keys(Keys.ESCAPE)
-            except Exception:
-                try:
-                    driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
-                except Exception:
-                    pass
-            time.sleep(0.1)
+                time.sleep(0.05)
+        except Exception:
+            pass
 
-    def check_and_click_post_now(self, driver, timeout: float = 2.5) -> bool:
+    def check_and_click_post_now(self, driver, timeout: float = 4.0) -> bool:
         """
-        Sau khi nhấn Post, đợi và nhấn nút xác nhận 'Post now' (TUXButton-primary) nếu có dialog xác nhận xuất hiện.
-        Tối ưu timeout xuống 2.5s (poll mỗi 0.25s) thay vì treo 12-15s khi không có popup.
+        Sau khi nhấn Post, đợi và nhấn nút xác nhận 'Post now' nếu có dialog xác nhận xuất hiện.
+        Chỉ click đúng nút có chứa text 'Post now' hoặc 'Đăng ngay'.
         """
-        selectors = [
-            "button.TUXButton.TUXButton--primary",
-            "button.TUXButton--primary",
-            "button.TUXButton",
-            "//button[contains(@class, 'TUXButton') and (.//div[contains(@class, 'TUXButton-label') and (contains(text(), 'Post now') or contains(text(), 'Đăng ngay') or contains(text(), 'Post'))] or contains(@class, 'TUXButton--primary'))]",
-            "//button[.//div[contains(@class, 'TUXButton-label') and (contains(text(), 'Post now') or contains(text(), 'Đăng ngay'))]]",
+        js_post_now = """
+        const allBtns = document.querySelectorAll('button');
+        for (const b of allBtns) {
+            if (b.offsetParent === null) continue;
+            const txt = (b.textContent || '').trim().toLowerCase();
+            if ((txt.includes('post now') || txt.includes('đăng ngay')) && !b.disabled) {
+                b.scrollIntoView({behavior: 'instant', block: 'center'});
+                b.click();
+                return true;
+            }
+        }
+        const postNowSelectors = [
+            "button[data-e2e*='post_now']",
+            "button.TUXButton--primary[data-e2e*='post']"
+        ];
+        for (const sel of postNowSelectors) {
+            const btns = document.querySelectorAll(sel);
+            for (const b of btns) {
+                if (b.offsetParent !== null && !b.disabled) {
+                    b.scrollIntoView({behavior: 'instant', block: 'center'});
+                    b.click();
+                    return true;
+                }
+            }
+        }
+        return false;
+        """
+        fallback_selectors = [
+            "//button[contains(@class, 'TUXButton') and (.//div[contains(@class, 'TUXButton-label') and (contains(text(), 'Post now') or contains(text(), 'Đăng ngay'))])]",
             "//button[contains(., 'Post now') or contains(., 'Đăng ngay')]",
+            "button[data-e2e*='post_now']",
         ]
         t_end = time.time() + timeout
+        time.sleep(0.3)  # Đợi 300ms để popup hiển thị nếu có
         while time.time() < t_end:
-            for sel in selectors:
+            try:
+                res = driver.execute_script(js_post_now)
+                if res is True:
+                    logger.info("🚀 Đã nhấn nút xác nhận 'Post now' (Đăng ngay) thành công!")
+                    time.sleep(0.5)
+                    return True
+            except Exception:
+                pass
+
+            for sel in fallback_selectors:
                 try:
-                    if sel.startswith("//"):
-                        elements = driver.find_elements(By.XPATH, sel)
-                    else:
-                        elements = driver.find_elements(By.CSS_SELECTOR, sel)
+                    elements = driver.find_elements(By.XPATH, sel) if sel.startswith("//") else driver.find_elements(By.CSS_SELECTOR, sel)
                     for el in elements:
                         if el.is_displayed():
-                            logger.info(f"Phát hiện nút xác nhận 'Post now' ({sel}), đang nhấn...")
-                            driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", el)
-                            time.sleep(0.1)
-                            try:
-                                el.click()
-                            except Exception:
-                                driver.execute_script("arguments[0].click();", el)
-                            logger.info("Đã nhấn nút 'Post now' (TUXButton) thành công!")
-                            time.sleep(0.3)
+                            el.click()
+                            logger.info("Đã nhấn nút 'Post now' thành công!")
+                            time.sleep(0.5)
                             return True
                 except Exception:
                     pass
-            time.sleep(0.25)
-        logger.debug("Không thấy nút popup 'Post now' (video có thể đã được đăng trực tiếp).")
+
+            time.sleep(0.1)
+        logger.debug("Không thấy popup 'Post now' (video có thể đã được đăng trực tiếp).")
         return False
 
     def fill_caption(self, driver, caption: str) -> bool:
         """
-        Tìm khung soạn thảo caption trên TikTok Studio và điền caption kèm hashtags.
-        Hỗ trợ nhiều loại selector (.public-DraftEditor-content, contenteditable, textarea).
+        Hàm dự phòng nếu cần can thiệp caption thủ công.
+        (Mặc định TikTok tự động lấy tên file làm caption nên không cần gọi).
         """
         if not caption:
             return True
@@ -334,10 +334,8 @@ class TikTokUploader:
                 for box in boxes:
                     if box.is_displayed():
                         box.click()
-                        time.sleep(0.1)
+                        time.sleep(0.05)
                         clean_caption = caption.strip()
-                        if "#" not in clean_caption:
-                            clean_caption += " #fyp #trending #viral"
                         box.send_keys(Keys.CONTROL + "a")
                         box.send_keys(Keys.BACKSPACE)
                         box.send_keys(clean_caption)
@@ -347,36 +345,116 @@ class TikTokUploader:
             logger.debug(f"Lỗi khi điền caption: {e}")
         return False
 
-    def click_post_button(self, driver, timeout: int = 30, caption: str = "") -> bool:
+    def wait_for_upload_complete(self, driver, timeout: float = 60.0) -> bool:
         """
-        Cuộn xuống trang TikTok Studio, định vị nút Post theo data-e2e và CSS classes
-        (độc lập với ngôn ngữ hiển thị), đợi video tải xong và nhấn nút Đăng.
-        Tối ưu: Trong thời gian chờ nút Post sẵn sàng, chủ động tìm và điền caption song song.
+        Đợi video hoàn tất quá trình tải lên máy chủ TikTok (Uploaded / Đã tải lên)
+        trước khi bấm nút Đăng (Post), tránh tình trạng bấm vội khi video chưa lên xong.
         """
-        post_selectors = [
-            "button[data-e2e='post_video_button']",
-            "button[data-e2e*='post_video']",
-            "button[data-e2e*='post']",
-            "button.Button__root--type-primary[data-size='large']",
-            "button.Button__root.Button__root--type-primary",
-            "button.Button__root--type-primary",
-        ]
-
-        caption_filled = not bool(caption)
+        logger.info("⏳ Đang đợi video tải lên hoàn tất trên TikTok Studio (Uploaded)...")
         t_end = time.time() + timeout
 
-        # 1. Cuộn trang xuống đáy ngay lập tức để nút hiển thị trong DOM
+        js_check_upload = """
+        const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
+        // 1. Kiểm tra text trạng thái 'Uploaded (6.42MB)' hoặc 'Đã tải lên'
+        if (bodyText.includes('uploaded (') || bodyText.includes('đã tải lên (') || bodyText.includes('upload complete')) {
+            return true;
+        }
+        // 2. Kiểm tra nếu có nút Post và không bị disabled đồng thời không còn chữ 'uploading'
+        const postBtn = document.querySelector("button[data-e2e='post_video_button']");
+        if (postBtn && !postBtn.disabled) {
+            const isDis = postBtn.getAttribute('aria-disabled') === 'true' || 
+                          postBtn.getAttribute('data-disabled') === 'true' || 
+                          postBtn.getAttribute('data-loading') === 'true' ||
+                          (postBtn.className && postBtn.className.toLowerCase().includes('disabled'));
+            if (!isDis && !bodyText.includes('uploading') && !bodyText.includes('đang tải lên')) {
+                return true;
+            }
+        }
+        return false;
+        """
+
+        while time.time() < t_end:
+            try:
+                res = driver.execute_script(js_check_upload)
+                if res is True:
+                    logger.info("✅ Video đã tải lên máy chủ TikTok thành công (Uploaded)!")
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.3)
+
+        logger.warning("Hết thời gian chờ trạng thái Uploaded, thử tiếp tục bước nhấn Post...")
+        return False
+
+    def click_post_button(self, driver, timeout: int = 30) -> bool:
+        """
+        Cuộn xuống trang TikTok Studio, định vị đúng nút Post theo data-e2e='post_video_button'
+        hoặc text chính xác, đợi nút mở khóa và nhấn Đăng.
+        """
+        logger.info("⚡ Đang tìm và bấm nút POST (Đăng)...")
+        t_end = time.time() + timeout
+
+        # Cuộn trang xuống đáy để nút hiển thị trong DOM
         try:
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         except Exception:
             pass
 
+        js_click_post = """
+        const selectors = [
+            "button[data-e2e='post_video_button']",
+            "button[data-e2e='post_button']",
+            "button[data-e2e*='post_video']"
+        ];
+        for (const sel of selectors) {
+            const btns = document.querySelectorAll(sel);
+            for (const btn of btns) {
+                if (btn.offsetParent === null) continue;
+                const isDis = btn.getAttribute('aria-disabled') === 'true' || 
+                              btn.getAttribute('data-disabled') === 'true' || 
+                              btn.getAttribute('data-loading') === 'true' || 
+                              btn.disabled || 
+                              (btn.className && btn.className.toLowerCase().includes('disabled'));
+                if (!isDis) {
+                    btn.scrollIntoView({behavior: 'instant', block: 'center'});
+                    btn.click();
+                    return true;
+                }
+            }
+        }
+        const allBtns = document.querySelectorAll('button');
+        for (const b of allBtns) {
+            if (b.offsetParent === null) continue;
+            const txt = (b.textContent || '').trim().toLowerCase();
+            if ((txt === 'post' || txt === 'đăng' || txt === 'post video') && !b.disabled) {
+                const isDis = b.getAttribute('aria-disabled') === 'true' || 
+                              b.getAttribute('data-disabled') === 'true' || 
+                              b.getAttribute('data-loading') === 'true' ||
+                              (b.className && b.className.toLowerCase().includes('disabled'));
+                if (!isDis) {
+                    btn.scrollIntoView({behavior: 'instant', block: 'center'});
+                    btn.click();
+                    return true;
+                }
+            }
+        }
+        return false;
+        """
+
+        post_selectors = [
+            "button[data-e2e='post_video_button']",
+            "button[data-e2e*='post_video']",
+            "button[data-e2e*='post']",
+        ]
+
         while time.time() < t_end:
-            # Trong thời gian chờ nút post ấn được: Điền luôn caption nếu chưa điền
-            if not caption_filled:
-                if self.fill_caption(driver, caption):
-                    caption_filled = True
-                    logger.info("⚡ [Song song] Đã điền xong Caption trong lúc chờ nút Post sẵn sàng!")
+            try:
+                res = driver.execute_script(js_click_post)
+                if res is True:
+                    logger.info("🚀 Đã nhấn nút POST thành công qua script!")
+                    return True
+            except Exception as e:
+                logger.debug(f"Poll post error: {e}")
 
             for sel in post_selectors:
                 try:
@@ -384,79 +462,98 @@ class TikTokUploader:
                     for btn in buttons:
                         if not btn.is_displayed():
                             continue
-
-                        # Kiểm tra trạng thái xử lý/khóa của nút
                         aria_disabled = btn.get_attribute("aria-disabled")
                         data_disabled = btn.get_attribute("data-disabled")
                         data_loading = btn.get_attribute("data-loading")
                         btn_class = btn.get_attribute("class") or ""
-
                         if aria_disabled == "true" or data_disabled == "true" or data_loading == "true" or "disabled" in btn_class.lower():
                             continue
-
-                        # Đảm bảo caption đã được điền trước khi bấm Đăng
-                        if not caption_filled and caption:
-                            if self.fill_caption(driver, caption):
-                                caption_filled = True
-
-                        # Cuộn nút vào giữa màn hình và click ngay lập tức
-                        driver.execute_script(
-                            "arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});",
-                            btn
-                        )
-                        time.sleep(0.1)
-
-                        # Nhấn nút (hỗ trợ cả click thông thường và JS click dự phòng)
-                        try:
-                            btn.click()
-                        except Exception:
-                            driver.execute_script("arguments[0].click();", btn)
-
-                        logger.info(f"Đã cuộn xuống và nhấn nút POST thành công (Selector: {sel})!")
+                        btn.click()
+                        logger.info(f"Đã nhấn nút POST thành công (Selector: {sel})!")
                         return True
-                except Exception as e:
-                    logger.debug(f"Selector {sel} lookup error: {e}")
+                except Exception:
+                    pass
 
-            time.sleep(0.25)
+            time.sleep(0.1)
 
         logger.warning("Hết thời gian chờ nút Post TikTok Studio (hoặc nút chưa sẵn sàng).")
         return False
 
+    def wait_for_post_success(self, driver, timeout: float = 30.0) -> bool:
+        """
+        Đợi TikTok xử lý và xác nhận đăng video thành công (hiển thị popup 'Upload another video' /
+        'Manage your posts' hoặc chuyển hướng URL sang trang quản lý video),
+        đảm bảo video không bị huỷ hoặc reload ngắt giữa chừng.
+        """
+        logger.info("⏳ Đang đợi TikTok xử lý và xác nhận video đã được đăng thành công...")
+        t_end = time.time() + timeout
+
+        js_check_success = """
+        const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
+        if (bodyText.includes('your video has been uploaded') ||
+            bodyText.includes('your video is being uploaded') ||
+            bodyText.includes('video của bạn đã được tải lên') ||
+            bodyText.includes('video đã được đăng') ||
+            bodyText.includes('manage your posts') ||
+            bodyText.includes('quản lý bài đăng') ||
+            bodyText.includes('upload another') ||
+            bodyText.includes('đăng video khác')) {
+            return true;
+        }
+        const currUrl = window.location.href.toLowerCase();
+        if (currUrl.includes('/tiktokstudio/content') || currUrl.includes('/manage')) {
+            return true;
+        }
+        return false;
+        """
+
+        while time.time() < t_end:
+            try:
+                res = driver.execute_script(js_check_success)
+                if res is True:
+                    logger.info("🎉 TikTok đã xác nhận đăng video thành công!")
+                    return True
+                curr_url = (driver.current_url or "").lower()
+                if "/tiktokstudio/content" in curr_url or "/manage" in curr_url:
+                    logger.info("🎉 URL đã chuyển sang trang quản lý nội dung (Đăng thành công)!")
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.3)
+
+        logger.warning("Đã hết thời gian chờ popup xác nhận đăng thành công.")
+        return False
+
     def reset_to_upload_page(self, driver) -> bool:
         """
-        Sau khi post xong 1 video, đưa trình duyệt quay lại trang upload TikTok Studio
+        Sau khi video đăng xong, đưa trình duyệt quay lại trang upload TikTok Studio
         (https://www.tiktok.com/tiktokstudio/upload?from=webapp&tab=video)
-        để sẵn sàng 0s cho lần đăng video tiếp theo.
-        Tối ưu: Polling chủ động tìm nút 'Upload another' ngay lập tức thay vì sleep cứng 2.5s.
+        để sẵn sàng cho lần đăng video tiếp theo.
+        Ưu tiên bấm nút 'Upload another video' trên popup thành công, nếu không có mới chuyển trang.
         """
         logger.info("🔄 Đang chuyển trình duyệt quay lại trang Upload TikTok Studio để tối ưu thời gian cho lần sau...")
         try:
-            # 1. Thử tìm ngay nút 'Upload another video' / 'Đăng video khác' trên modal thành công
             upload_another_selectors = [
                 "button[data-e2e*='upload_another']",
                 "button[data-e2e*='post_another']",
                 "//button[contains(., 'Upload another') or contains(., 'Đăng video khác') or contains(., 'Upload more')]",
                 "//div[contains(text(), 'Upload another') or contains(text(), 'Đăng video khác')]"
             ]
-            t_wait = time.time() + 2.0
+            t_wait = time.time() + 3.0
             while time.time() < t_wait:
                 for sel in upload_another_selectors:
                     try:
-                        if sel.startswith("//"):
-                            btns = driver.find_elements(By.XPATH, sel)
-                        else:
-                            btns = driver.find_elements(By.CSS_SELECTOR, sel)
+                        btns = driver.find_elements(By.XPATH, sel) if sel.startswith("//") else driver.find_elements(By.CSS_SELECTOR, sel)
                         for b in btns:
                             if b.is_displayed():
                                 b.click()
                                 logger.info("Đã bấm nút 'Upload another video' trên popup thành công.")
-                                time.sleep(0.2)
+                                time.sleep(0.3)
                                 return True
                     except Exception:
                         pass
                 time.sleep(0.2)
 
-            # 2. Điều hướng trực tiếp về trang upload
             driver.get(TIKTOK_UPLOAD_URL)
             logger.info("Đã chuyển tab trình duyệt quay lại trang Upload TikTok Studio sẵn sàng!")
             return True
@@ -562,17 +659,34 @@ class TikTokUploader:
             logger.info(f"Đang truyền đường dẫn file vào TikTok Studio: {abs_path}")
             file_input.send_keys(abs_path)
 
-            # 1. Tự động đăng & Điền caption song song ngay trong lúc video đang upload
+            # Tự động đăng: Đợi upload xong -> Bấm Post -> Bấm Post now nếu có -> Đợi xác nhận thành công
             if auto_post:
-                logger.info("Chế độ Tự động đăng BẬT: Đang cuộn xuống tìm nút Post (data-e2e='post_video_button') và điền caption song song...")
-                post_ok = self.click_post_button(driver, timeout=30, caption=caption)
-                if post_ok:
-                    logger.info("Đã bấm nút ĐĂNG (Post) video lên TikTok Studio thành công.")
-                    # 4. Sau đó kiểm tra nhanh nút xác nhận 'Post now' (TUXButton--primary) nếu có
-                    self.check_and_click_post_now(driver, timeout=2.5)
+                logger.info("Chế độ Tự động đăng BẬT:")
+                # 1. Đợi video hoàn tất tải lên máy chủ TikTok (Uploaded / Đã tải lên)
+                self.wait_for_upload_complete(driver, timeout=60.0)
 
-                    # 5. Quay trở lại trang upload ngay để tối ưu thời gian cho video kế tiếp (0s trễ)
-                    self.reset_to_upload_page(driver)
+                # 2. Bấm nút ĐĂNG (Post)
+                post_ok = self.click_post_button(driver, timeout=30)
+                if post_ok:
+                    logger.info("Đã bấm nút ĐĂNG (Post) video lên TikTok Studio.")
+
+                    # 3. Kiểm tra nút xác nhận 'Post now' / 'Đăng ngay' nếu có dialog popup
+                    self.check_and_click_post_now(driver, timeout=4.0)
+
+                    # Chốt thời gian hoàn tất Upload TikTok NGAY SAU KHI ẤN XONG POST NOW
+                    elapsed = time.perf_counter() - t_start
+                    logger.info(f"🎉 Tải và bấm đăng video lên TikTok Studio thành công trong {elapsed:.2f}s!")
+
+                    # 4. Đợi TikTok xác nhận đăng thành công ngầm trên nền (đảm bảo không bị reload ngắt tiến trình)
+                    self.wait_for_post_success(driver, timeout=30.0)
+
+                    # 5. Quay trở lại trang upload trên nền để đón video tiếp theo (0s trễ)
+                    try:
+                        self.reset_to_upload_page(driver)
+                    except Exception as e:
+                        logger.debug(f"Lỗi reset trang upload: {e}")
+
+                    return True, elapsed, "Tải lên TikTok thành công"
                 else:
                     logger.warning("Không thể tự động bấm nút Đăng (có thể cần xác nhận thủ công hoặc video chưa xử lý xong).")
             else:

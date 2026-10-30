@@ -627,9 +627,9 @@ class WebBridgeApi:
                         self.emit_log(f"ℹ [{idx+1}/{total}] Kênh '{ch_url[:40]}...': Video mới nhất '{videos[0].get('title', '')[:30]}...' đã up trước đó (đã lưu lịch sử). Tiếp tục theo dõi...")
                     continue
 
-                # Kích hoạt pre-warm GPM profile song song khi có video mới cần up
+                # Kích hoạt pre-warm GPM profile song song khi có video mới cần up (chỉ khi chưa mở sẵn)
                 prewarm_thread = None
-                if target_pid:
+                if target_pid and not (uploader._cached_driver and uploader._cached_profile_id == target_pid):
                     def prewarm_worker():
                         uploader.prewarm_profile(target_pid, self._gpm_client)
                     prewarm_thread = threading.Thread(target=prewarm_worker, daemon=True)
@@ -644,15 +644,21 @@ class WebBridgeApi:
                     title = v.get("title", f"Video {v_id}")
                     v_url = v.get("url", f"https://www.youtube.com/watch?v={v_id}")
 
-                    raw_path = os.path.join(downloads_dir, f"{v_id}.mp4")
-                    render_path = os.path.join(output_dir, f"{v_id}_tiktok.mp4")
+                    # Đặt tên file theo Title để TikTok tự động điền Description chuẩn 100% (0s trễ)
+                    safe_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', title).strip()[:100]
+                    file_stem = safe_title if safe_title else v_id
+                    raw_path = os.path.join(downloads_dir, f"{file_stem}.mp4")
+                    render_path = os.path.join(output_dir, f"{file_stem}_tiktok.mp4")
 
                     # Kích hoạt tải đón đầu ngầm video kế tiếp (nếu danh sách có nhiều video)
                     if v_idx + 1 < len(unprocessed_videos):
                         next_v = unprocessed_videos[v_idx + 1]
                         next_vid = next_v.get("id")
+                        next_title = next_v.get("title", f"Video {next_vid}")
                         next_url = next_v.get("url")
-                        next_raw = os.path.join(downloads_dir, f"{next_vid}.mp4")
+                        next_safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', next_title).strip()[:100]
+                        next_file_stem = next_safe if next_safe else next_vid
+                        next_raw = os.path.join(downloads_dir, f"{next_file_stem}.mp4")
                         if not os.path.exists(next_raw):
                             threading.Thread(
                                 target=downloader.download_video,
@@ -668,7 +674,7 @@ class WebBridgeApi:
                         t_dl = 0.0
                     else:
                         self.emit_queue_item(v_id, title, 20, f"Đang tải {quality}p...")
-                        self.emit_log(f"⚡ Đang tải siêu tốc video {quality}p (Ưu tiên AV1 siêu nhẹ + Đa luồng Chunks): {title} ({v_id})...")
+                        self.emit_log(f"⚡ Đang tải siêu tốc video {quality}p (32 luồng kết nối song song): {title} ({v_id})...")
                         t0_dl = time.perf_counter()
                         dl_ok = downloader.download_video(v_url, raw_path, quality=quality)
                         t_dl = time.perf_counter() - t0_dl
@@ -718,7 +724,8 @@ class WebBridgeApi:
                         profile_id=target_pid,
                         gpm_client=self._gpm_client
                     )
-                    t_up = time.perf_counter() - t0_up
+                    # Tính thời gian up chuẩn xác từ uploader trả về (chốt ngay khi nhấn Post now xong)
+                    t_up = up_sec if (up_sec and up_sec > 0) else (time.perf_counter() - t0_up)
 
                     t_total = t_scan + t_dl + t_proc + t_up
                     self.emit_queue_item(v_id, title, 100, "Hoàn tất")

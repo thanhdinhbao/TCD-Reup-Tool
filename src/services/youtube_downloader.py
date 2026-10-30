@@ -110,14 +110,7 @@ class YouTubeDownloader:
             "geo_bypass": True,
             "socket_timeout": 10,
             "noplaylist": True,
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-            }
         }
-        node_exe = self._find_node()
-        if node_exe:
-            opts["js_runtimes"] = {"node": {"path": node_exe}}
         return opts
 
     def get_channel_videos(self, channel_url: str, limit: int = 10) -> List[Dict]:
@@ -383,35 +376,12 @@ class YouTubeDownloader:
                     if self._native_range_download(mobile_url, output_path, num_chunks=12):
                         return True
 
-        # Định dạng tải siêu tốc: Ưu tiên stream MP4 progressive (Format 22/18) hoặc video H.264/AV1 720p + AAC
-        if quality == "1080":
-            format_str = (
-                "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-                "bestvideo[height<=1080]+bestaudio/"
-                "best[height<=1080][ext=mp4]/"
-                "best[height<=1080]/"
-                "best"
-            )
-        elif quality == "360":
-            format_str = (
-                "18/"
-                "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/"
-                "best[height<=360][ext=mp4]/"
-                "best"
-            )
-        else:
-            format_str = (
-                "22/"
-                "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/"
-                "bestvideo[height<=720]+bestaudio[ext=m4a]/"
-                "bestvideo[height<=720]+bestaudio/"
-                "best[height<=720][ext=mp4]/"
-                "best[height<=720]/"
-                "best"
-            )
+        # Tối ưu chuẩn theo test.py: Lấy định dạng nét nhất trong giới hạn độ phân giải + âm thanh cao nhất
+        h = int(quality) if str(quality).isdigit() else 720
+        format_str = f"bestvideo[height<={h}]+bestaudio/best[height<={h}]"
 
-        opts = self._get_base_ydl_opts()
-        opts.update({
+        ffmpeg_bin = self._find_ffmpeg()
+        opts = {
             "format": format_str,
             "outtmpl": output_path,
             "merge_output_format": "mp4",
@@ -420,11 +390,15 @@ class YouTubeDownloader:
             "nocheckcertificate": True,
             "noplaylist": True,
             "concurrent_fragment_downloads": 16,
-            "buffersize": 16 * 1024 * 1024,
-            "http_chunk_size": 10 * 1024 * 1024,
-            "retries": 3,
-            "fragment_retries": 3,
-        })
+            "retries": 10,
+            "fragment_retries": 10,
+            "windowsfilenames": True,
+            "quiet": True,
+            "no_warnings": True,
+            "logger": SilentLogger(),
+        }
+        if ffmpeg_bin:
+            opts["ffmpeg_location"] = ffmpeg_bin
 
         if progress_callback:
             def hook(d):

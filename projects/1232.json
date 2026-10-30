@@ -25,7 +25,7 @@
             }
         ],
         "upload_timeout": 30,
-        "next_video_delay": 10,
+        "next_video_delay": 3,
         "channels_config": {
             "https://www.youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg": {
                 "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
@@ -36,9 +36,9 @@
     },
     "schedule": [
         {
-            "start": "20:03",
-            "end": "21:03"
+            "start": "00:00",
+            "end": "23:59"
         }
     ],
-    "schedule_mode": "multi"
+    "schedule_mode": "all_time"
 }
