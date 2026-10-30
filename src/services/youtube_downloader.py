@@ -376,8 +376,81 @@ class YouTubeDownloader:
                     if self._native_range_download(mobile_url, output_path, num_chunks=12):
                         return True
 
-        # Tối ưu chuẩn theo test.py: Lấy định dạng nét nhất trong giới hạn độ phân giải + âm thanh cao nhất
+        # Tối ưu siêu tốc: Tải song song 2 luồng độc lập (Video + Audio) bằng 2 Thread rồi FFmpeg merge (-c copy)
         h = int(quality) if str(quality).isdigit() else 720
+        ffmpeg_bin = self._find_ffmpeg()
+
+        if ffmpeg_bin:
+            temp_v = f"{output_path}.v_tmp.mp4"
+            temp_a = f"{output_path}.a_tmp.m4a"
+
+            opts_common = {
+                "noplaylist": True,
+                "continuedl": True,
+                "retries": 10,
+                "fragment_retries": 10,
+                "concurrent_fragment_downloads": 32,
+                "windowsfilenames": True,
+                "overwrites": True,
+                "quiet": True,
+                "no_warnings": True,
+                "nocheckcertificate": True,
+                "logger": SilentLogger(),
+            }
+
+            opts_v = dict(opts_common)
+            opts_v["format"] = f"bestvideo[height<={h}]"
+            opts_v["outtmpl"] = temp_v
+
+            opts_a = dict(opts_common)
+            opts_a["format"] = "bestaudio"
+            opts_a["outtmpl"] = temp_a
+
+            try:
+                def dl_v():
+                    with yt_dlp.YoutubeDL(opts_v) as ydl:
+                        ydl.download([video_url])
+
+                def dl_a():
+                    with yt_dlp.YoutubeDL(opts_a) as ydl:
+                        ydl.download([video_url])
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    f_v = pool.submit(dl_v)
+                    f_a = pool.submit(dl_a)
+                    f_v.result()
+                    f_a.result()
+
+                if os.path.exists(temp_v) and os.path.exists(temp_a):
+                    merge_cmd = [
+                        ffmpeg_bin, "-y",
+                        "-i", temp_v,
+                        "-i", temp_a,
+                        "-c", "copy",
+                        "-movflags", "+faststart",
+                        output_path
+                    ]
+                    res = subprocess.run(merge_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    for tmp_f in (temp_v, temp_a):
+                        if os.path.exists(tmp_f):
+                            try:
+                                os.remove(tmp_f)
+                            except Exception:
+                                pass
+
+                    if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
+                        logger.info(f"⚡ [2-Thread FFmpeg Merge] Đã tải và ghép video + audio thành công trong 2 luồng: {output_path}")
+                        return True
+            except Exception as e:
+                logger.warning(f"2 luồng song song gặp lỗi, chuyển sang fallback 1 luồng: {e}")
+                for tmp_f in (temp_v, temp_a):
+                    if os.path.exists(tmp_f):
+                        try:
+                            os.remove(tmp_f)
+                        except Exception:
+                            pass
+
+        # Fallback 1 luồng truyền thống nếu không có ffmpeg hoặc 2 luồng lỗi
         format_str = f"bestvideo[height<={h}]+bestaudio/best[height<={h}]"
 
         ffmpeg_bin = self._find_ffmpeg()

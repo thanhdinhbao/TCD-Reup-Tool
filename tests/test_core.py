@@ -389,9 +389,17 @@ class TestGPMLocalAPIClient(unittest.TestCase):
         mock_urlopen.return_value.__enter__.return_value = mock_resp
 
         client = GPMLocalAPIClient(port=9495)
-        ok, data, msg = client.start_profile("test-uuid-1")
+        ok, data, msg = client.start_profile("test-uuid-1", skip_proxy_check=True)
         self.assertTrue(ok)
         self.assertEqual(data["remote_debugging_port"], 40444)
+
+        # Kiểm tra request URL chứa đầy đủ addition_args và skip_proxy_check
+        req_arg = mock_urlopen.call_args[0][0]
+        req_url = req_arg.full_url if hasattr(req_arg, "full_url") else str(req_arg)
+        self.assertIn("skip_proxy_check=true", req_url)
+        self.assertIn("addition_args=", req_url)
+        self.assertIn("remote-allow-origins", req_url)
+        self.assertIn("disable-background-timer-throttling", req_url)
 
 
 class TestWebBridgeApi(unittest.TestCase):

@@ -11,6 +11,7 @@ import json
 import logging
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import List, Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -127,15 +128,26 @@ class GPMLocalAPIClient:
             return True, data.get("id"), msg
         return False, None, msg
 
+    DEFAULT_ADDITION_ARGS = (
+        "--remote-allow-origins=* "
+        "--disable-background-timer-throttling "
+        "--disable-backgrounding-occluded-windows "
+        "--disable-renderer-backgrounding"
+    )
+
     def start_profile(
         self,
         profile_id: str,
         remote_debugging_port: int = 0,
-        skip_proxy_check: bool = False
+        skip_proxy_check: bool = False,
+        addition_args: str = DEFAULT_ADDITION_ARGS,
+        window_scale: Optional[float] = None,
+        window_pos: Optional[str] = None,
+        window_size: Optional[str] = None,
     ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
         """
         Launch browser for profile.
-        GET /api/v1/profiles/start/{id}?remote_debugging_port=...
+        GET /api/v1/profiles/start/{id}?remote_debugging_port=...&addition_args=...
         Returns:
             (success, data, message)
             data contains:
@@ -144,13 +156,24 @@ class GPMLocalAPIClient:
               - 'remote_debugging_port' (e.g. 40444)
               - 'websocket_debugging_url'
         """
-        endpoint = f"/profiles/start/{profile_id}?"
-        params = []
+        params = {}
         if remote_debugging_port > 0:
-            params.append(f"remote_debugging_port={remote_debugging_port}")
+            params["remote_debugging_port"] = str(remote_debugging_port)
         if skip_proxy_check:
-            params.append("skip_proxy_check=true")
-        endpoint += "&".join(params)
+            params["skip_proxy_check"] = "true"
+        if addition_args:
+            params["addition_args"] = addition_args.strip()
+        if window_scale is not None:
+            params["window_scale"] = str(window_scale)
+        if window_pos:
+            params["window_pos"] = str(window_pos)
+        if window_size:
+            params["window_size"] = str(window_size)
+
+        query_str = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
+        endpoint = f"/profiles/start/{profile_id}"
+        if query_str:
+            endpoint += f"?{query_str}"
 
         ok, data, msg = self._request(endpoint, timeout=25)
         if ok and isinstance(data, dict):
