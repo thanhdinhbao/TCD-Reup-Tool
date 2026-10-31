@@ -1,7 +1,7 @@
 {
     "name": "1232",
     "channels": [
-        "https://www.youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg"
+        "https://www.youtube.com/channel/UCW09iZOm1xBkTjoQGVkn0sA"
     ],
     "threads": 10,
     "use_proxy": false,
@@ -20,14 +20,14 @@
                 "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
                 "profile_name": "tik1",
                 "assigned_channels": [
-                    "https://www.youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg"
+                    "https://www.youtube.com/channel/UCW09iZOm1xBkTjoQGVkn0sA"
                 ]
             }
         ],
         "upload_timeout": 30,
         "next_video_delay": 3,
         "channels_config": {
-            "https://www.youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg": {
+            "https://www.youtube.com/channel/UCW09iZOm1xBkTjoQGVkn0sA": {
                 "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
                 "quality": "720",
                 "process_mode": "direct"

@@ -93,7 +93,15 @@ def download_video(url, max_height):
     start = time.perf_counter()
     ffmpeg = shutil.which("ffmpeg")
 
-    v_format = f"bestvideo[height<={max_height}]" if max_height else "bestvideo"
+    long_side_map = {360: 640, 480: 854, 720: 1280, 1080: 1920, 1440: 2560, 2160: 3840}
+    max_long = long_side_map.get(max_height, int(max_height * 16 / 9) if max_height else None)
+
+    if max_height:
+        v_format = f"bestvideo[width<={max_long}][height<={max_long}]/bestvideo[height<={max_height}]/bestvideo"
+        v_sort = [f"res:{max_height}", "+vcodec:avc"]
+    else:
+        v_format = "bestvideo"
+        v_sort = ["+vcodec:avc"]
     a_format = "bestaudio"
 
     print(f"\nURL: {url}")
@@ -125,6 +133,7 @@ def download_video(url, max_height):
 
         opts_v = dict(opts_common)
         opts_v["format"] = v_format
+        opts_v["format_sort"] = v_sort
         opts_v["outtmpl"] = str(temp_v)
 
         opts_a = dict(opts_common)
@@ -200,14 +209,18 @@ def download_video(url, max_height):
     # 2. Fallback tuần tự nếu không có ffmpeg hoặc 2 luồng lỗi
     if max_height is None:
         format_selector = "bestvideo*+bestaudio/best"
+        sort_selector = ["+vcodec:avc"]
     else:
         format_selector = (
+            f"bestvideo[width<={max_long}][height<={max_long}]+bestaudio/"
             f"bestvideo[height<={max_height}]+bestaudio/"
-            f"best[height<={max_height}]"
+            f"best[width<={max_long}][height<={max_long}]/best"
         )
+        sort_selector = [f"res:{max_height}", "+vcodec:avc"]
 
     options = {
         "format": format_selector,
+        "format_sort": sort_selector,
         "outtmpl": str(
             DOWNLOAD_DIR / "%(title).180B [%(id)s].%(ext)s"
         ),

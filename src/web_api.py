@@ -15,6 +15,7 @@ import json
 import logging
 import threading
 import concurrent.futures
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from src.core.project_manager import ProjectManager
@@ -461,6 +462,8 @@ class WebBridgeApi:
         proj = self._project_manager.active_project
         auto_post_flag = pdata.get("auto_upload_tiktok", True)
         processed_videos = self._load_processed_videos()
+        worker_start_time = datetime.now(timezone.utc)
+        self.emit_log(f"🚀 [Bật tool] Mốc thời gian kích hoạt: {worker_start_time.strftime('%H:%M:%S UTC')}. Tool CHỈ tải & up video MỚI xuất bản từ thời điểm này trở đi!")
         cycle = 0
 
         # VÒNG LẶP QUÉT LIÊN TỤC KHÔNG NGHỈ (Chỉ dừng khi người dùng bấm nút Dừng)
@@ -619,9 +622,41 @@ class WebBridgeApi:
                     self.emit_log(f"⚠️ Kênh '{ch_url}' {key_badge} hiện KHÔNG CÓ video công khai nào trên YouTube (0 video). Vui lòng thêm video lên kênh hoặc đổi kênh khác!")
                     continue
 
-                # Lọc bỏ các video đã tải/đăng trước đó để tránh trùng lặp
+                # Kiểm tra nếu là kênh theo dõi (không phải dán link 1 video đơn lẻ)
+                is_direct_video = bool(downloader._extract_single_video_id(ch_url))
+
+                # VÒNG QUÉT ĐẦU TIÊN (cycle == 1): Lập mốc Baseline Snapshot toàn bộ video cũ có sẵn trên kênh
+                # Tuyệt đối không tải lại video cũ đã có trước khi bật tool!
+                if cycle == 1 and not is_direct_video:
+                    existing_ids = {v["id"] for v in videos if v.get("id")}
+                    if existing_ids:
+                        new_ids = existing_ids - processed_videos
+                        if new_ids:
+                            processed_videos.update(new_ids)
+                            self._save_processed_videos(processed_videos)
+                    self.emit_log(f"🛡️ [{idx+1}/{total}] Kênh '{ch_url[:40]}...': Đã ghi nhận mốc {len(existing_ids)} video có sẵn trước khi bật tool. Tool đang trực chiến, CHỈ tải & up khi kênh đăng video MỚI!")
+                    continue
+
+                # Lọc bỏ các video đã tải/đăng trước đó hoặc video cũ đăng trước thời điểm bật tool
                 processed_videos = self._load_processed_videos()
-                unprocessed_videos = [v for v in videos if v.get("id") and v.get("id") not in processed_videos]
+                unprocessed_videos = []
+                for v in videos:
+                    v_id = v.get("id")
+                    if not v_id or v_id in processed_videos:
+                        continue
+                    # Bỏ qua các video cũ xuất bản trước thời điểm bật tool (theo timestamp published_at / published)
+                    if not is_direct_video:
+                        pub_str = v.get("published_at") or v.get("published")
+                        if pub_str:
+                            try:
+                                pub_dt = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
+                                if pub_dt < worker_start_time:
+                                    processed_videos.add(v_id)
+                                    continue
+                            except Exception:
+                                pass
+                    unprocessed_videos.append(v)
+
                 if not unprocessed_videos:
                     if videos:
                         self.emit_log(f"ℹ [{idx+1}/{total}] Kênh '{ch_url[:40]}...': Video mới nhất '{videos[0].get('title', '')[:30]}...' đã up trước đó (đã lưu lịch sử). Tiếp tục theo dõi...")

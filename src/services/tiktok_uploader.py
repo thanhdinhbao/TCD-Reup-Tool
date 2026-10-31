@@ -668,14 +668,12 @@ class TikTokUploader:
                 # 2. Bấm nút ĐĂNG (Post)
                 post_ok = self.click_post_button(driver, timeout=30)
                 if post_ok:
-                    logger.info("Đã bấm nút ĐĂNG (Post) video lên TikTok Studio.")
+                    # 👉 Chốt kết thúc đồng hồ ngay tại thời điểm bấm xong nút Post
+                    elapsed = time.perf_counter() - t_start
+                    logger.info(f"🎉 Đã bấm nút ĐĂNG (Post) video lên TikTok Studio thành công trong {elapsed:.2f}s!")
 
                     # 3. Kiểm tra nút xác nhận 'Post now' / 'Đăng ngay' nếu có dialog popup
                     self.check_and_click_post_now(driver, timeout=4.0)
-
-                    # Chốt thời gian hoàn tất Upload TikTok NGAY SAU KHI ẤN XONG POST NOW
-                    elapsed = time.perf_counter() - t_start
-                    logger.info(f"🎉 Tải và bấm đăng video lên TikTok Studio thành công trong {elapsed:.2f}s!")
 
                     # 4. Đợi TikTok xác nhận đăng thành công ngầm trên nền (đảm bảo không bị reload ngắt tiến trình)
                     self.wait_for_post_success(driver, timeout=30.0)

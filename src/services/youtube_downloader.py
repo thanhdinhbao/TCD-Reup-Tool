@@ -378,6 +378,8 @@ class YouTubeDownloader:
 
         # Tối ưu siêu tốc: Tải song song 2 luồng độc lập (Video + Audio) bằng 2 Thread rồi FFmpeg merge (-c copy)
         h = int(quality) if str(quality).isdigit() else 720
+        long_side_map = {360: 640, 480: 854, 720: 1280, 1080: 1920, 1440: 2560, 2160: 3840}
+        max_long = long_side_map.get(h, int(h * 16 / 9) if h else 1280)
         ffmpeg_bin = self._find_ffmpeg()
 
         if ffmpeg_bin:
@@ -399,7 +401,9 @@ class YouTubeDownloader:
             }
 
             opts_v = dict(opts_common)
-            opts_v["format"] = f"bestvideo[height<={h}]"
+            # Hỗ trợ cả Shorts dọc (720x1280) và video ngang (1280x720), ưu tiên AVC/H.264 nét cao
+            opts_v["format"] = f"bestvideo[width<={max_long}][height<={max_long}]/bestvideo[height<={h}]/bestvideo"
+            opts_v["format_sort"] = [f"res:{h}", "+vcodec:avc"]
             opts_v["outtmpl"] = temp_v
 
             opts_a = dict(opts_common)
@@ -451,11 +455,16 @@ class YouTubeDownloader:
                             pass
 
         # Fallback 1 luồng truyền thống nếu không có ffmpeg hoặc 2 luồng lỗi
-        format_str = f"bestvideo[height<={h}]+bestaudio/best[height<={h}]"
+        format_str = (
+            f"bestvideo[width<={max_long}][height<={max_long}]+bestaudio/"
+            f"bestvideo[height<={h}]+bestaudio/"
+            f"best[width<={max_long}][height<={max_long}]/best"
+        )
 
         ffmpeg_bin = self._find_ffmpeg()
         opts = {
             "format": format_str,
+            "format_sort": [f"res:{h}", "+vcodec:avc"],
             "outtmpl": output_path,
             "merge_output_format": "mp4",
             "overwrites": True,

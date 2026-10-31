@@ -468,6 +468,17 @@ class TestWebBridgeApi(unittest.TestCase):
         res = self.bridge.save_tiktok_config(cfg)
         self.assertTrue(res)
 
+    def test_clear_processed_history(self):
+        # Lưu và làm mới danh sách video đã tải
+        self.bridge._save_processed_videos({"vid_01", "vid_02"})
+        loaded = self.bridge._load_processed_videos()
+        self.assertIn("vid_01", loaded)
+
+        res = self.bridge.clear_processed_history()
+        self.assertTrue(res["success"])
+        cleared = self.bridge._load_processed_videos()
+        self.assertEqual(len(cleared), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
