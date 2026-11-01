@@ -865,6 +865,10 @@ class MainWindow(QMainWindow):
         self._tiktok_short_cb.setChecked(True)
         tt_layout.addWidget(self._tiktok_short_cb)
 
+        self._skip_horizontal_cb = QCheckBox("✔ Bỏ qua video ngang")
+        self._skip_horizontal_cb.setChecked(True)
+        tt_layout.addWidget(self._skip_horizontal_cb)
+
         btn_cfg_tiktok = QPushButton("⚙️ Cấu hình TikTok")
         btn_cfg_tiktok.clicked.connect(self._open_tiktok_config)
         tt_layout.addWidget(btn_cfg_tiktok)
@@ -989,6 +993,7 @@ class MainWindow(QMainWindow):
 
         self._tiktok_auto_cb.setChecked(pdata.get("auto_upload_tiktok", True))
         self._tiktok_short_cb.setChecked(pdata.get("only_shorts", True))
+        self._skip_horizontal_cb.setChecked(pdata.get("skip_horizontal", True))
         self._tele_cb.setChecked(pdata.get("telegram_enabled", True))
 
         self.append_log(f"📁 Đang làm việc trên dự án: <b>{self.project_manager.active_project}</b> ({len(channels)} kênh)")
@@ -1008,6 +1013,7 @@ class MainWindow(QMainWindow):
             "proxy_region": self._region_combo.currentText(),
             "auto_upload_tiktok": self._tiktok_auto_cb.isChecked(),
             "only_shorts": self._tiktok_short_cb.isChecked(),
+            "skip_horizontal": self._skip_horizontal_cb.isChecked(),
             "telegram_enabled": self._tele_cb.isChecked(),
             "queue": []
         }

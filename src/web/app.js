@@ -9,6 +9,7 @@ let appState = {
   proxy_region: 'IP - Nhật Bản',
   auto_upload_tiktok: true,
   only_shorts: true,
+  skip_horizontal: true,
   telegram_enabled: false,
   telegram_token: '',
   telegram_chat_ids: [],
@@ -85,6 +86,8 @@ function renderInitialUI() {
   // Bottom Toggles
   document.getElementById('chk-auto-upload-tiktok').checked = !!appState.auto_upload_tiktok;
   document.getElementById('chk-only-shorts').checked = !!appState.only_shorts;
+  const elSkipH = document.getElementById('chk-skip-horizontal');
+  if (elSkipH) elSkipH.checked = (appState.skip_horizontal !== undefined) ? !!appState.skip_horizontal : true;
   document.getElementById('chk-telegram-enabled').checked = !!appState.telegram_enabled;
 
   // Stats
@@ -170,6 +173,9 @@ function setupUIEventListeners() {
       appState.active_project = res.active_project;
       appState.channels = res.channels;
       appState.schedule = res.schedule;
+      if (res.only_shorts !== undefined) appState.only_shorts = res.only_shorts;
+      if (res.skip_horizontal !== undefined) appState.skip_horizontal = res.skip_horizontal;
+      if (res.auto_upload_tiktok !== undefined) appState.auto_upload_tiktok = res.auto_upload_tiktok;
       if (res.tiktok_config) appState.tiktok_config = res.tiktok_config;
       renderInitialUI();
     } catch (err) {
@@ -251,7 +257,7 @@ function setupUIEventListeners() {
   });
 
   // Setting toggles change -> auto save
-  ['input-threads', 'chk-auto-upload-tiktok', 'chk-only-shorts'].forEach(id => {
+  ['input-threads', 'chk-auto-upload-tiktok', 'chk-only-shorts', 'chk-skip-horizontal'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', () => {
@@ -309,6 +315,8 @@ async function saveCurrentProjectState() {
   if (elAuto) appState.auto_upload_tiktok = elAuto.checked;
   const elShorts = document.getElementById('chk-only-shorts');
   if (elShorts) appState.only_shorts = elShorts.checked;
+  const elSkipH = document.getElementById('chk-skip-horizontal');
+  if (elSkipH) appState.skip_horizontal = elSkipH.checked;
 
   try {
     await window.pywebview.api.save_project_state({
@@ -317,7 +325,8 @@ async function saveCurrentProjectState() {
       use_proxy: appState.use_proxy,
       proxy_region: appState.proxy_region,
       auto_upload_tiktok: appState.auto_upload_tiktok,
-      only_shorts: appState.only_shorts
+      only_shorts: appState.only_shorts,
+      skip_horizontal: appState.skip_horizontal
     });
   } catch (err) {
     console.error('Failed saving project state:', err);

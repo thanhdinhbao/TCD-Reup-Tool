@@ -40,5 +40,6 @@
             "end": "23:59"
         }
     ],
-    "schedule_mode": "all_time"
+    "schedule_mode": "all_time",
+    "skip_horizontal": true
 }

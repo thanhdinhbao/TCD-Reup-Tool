@@ -84,6 +84,7 @@ class ProjectManager:
             "proxy_region": "IP - Nhật Bản",
             "auto_upload_tiktok": True,
             "only_shorts": True,
+            "skip_horizontal": True,
             "telegram_enabled": True,
             "schedule": [],
             "schedule_mode": "multi",
@@ -120,6 +121,7 @@ class ProjectManager:
                 "proxy_region": "IP - Nhật Bản",
                 "auto_upload_tiktok": True,
                 "only_shorts": True,
+                "skip_horizontal": True,
                 "telegram_enabled": True,
                 "queue": []
             }

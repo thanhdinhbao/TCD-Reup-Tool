@@ -479,6 +479,30 @@ class TestWebBridgeApi(unittest.TestCase):
         cleared = self.bridge._load_processed_videos()
         self.assertEqual(len(cleared), 0)
 
+    def test_save_project_state_skip_horizontal(self):
+        state = {
+            "channels": ["https://youtube.com/@NewChannel"],
+            "threads": 250,
+            "use_proxy": True,
+            "proxy_region": "IP - US",
+            "auto_upload_tiktok": False,
+            "only_shorts": True,
+            "skip_horizontal": True
+        }
+        res = self.bridge.save_project_state(state)
+        self.assertTrue(res)
+        pstate = self.bridge.get_initial_state()
+        self.assertTrue(pstate.get("only_shorts"))
+        self.assertTrue(pstate.get("skip_horizontal"))
+
+    def test_is_shorts_and_is_horizontal(self):
+        from src.services.youtube_downloader import YouTubeDownloader
+        yd = YouTubeDownloader()
+        # Direct shorts check
+        self.assertTrue(yd.is_shorts("https://www.youtube.com/shorts/tQryjZKQmwc"))
+        # Shorts should not be considered horizontal
+        self.assertFalse(yd.is_horizontal("https://www.youtube.com/shorts/tQryjZKQmwc"))
+
 
 if __name__ == "__main__":
     unittest.main()

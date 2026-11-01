@@ -151,6 +151,7 @@ class WebBridgeApi:
             "proxy_region": pdata.get("proxy_region", "IP - Nhật Bản"),
             "auto_upload_tiktok": pdata.get("auto_upload_tiktok", True),
             "only_shorts": pdata.get("only_shorts", True),
+            "skip_horizontal": pdata.get("skip_horizontal", True),
             "telegram_enabled": self._telegram.enabled,
             "telegram_token": self._telegram.bot_token,
             "telegram_chat_ids": self._telegram.telegram_chat_ids,
@@ -187,6 +188,10 @@ class WebBridgeApi:
             "active_project": self._project_manager.active_project,
             "channels": pdata.get("channels", []),
             "schedule": pdata.get("schedule", []),
+            "only_shorts": pdata.get("only_shorts", True),
+            "skip_horizontal": pdata.get("skip_horizontal", True),
+            "auto_upload_tiktok": pdata.get("auto_upload_tiktok", True),
+            "threads": pdata.get("threads", 500),
             "tiktok_config": self._project_manager.get_tiktok_config(name)
         }
 
@@ -210,6 +215,7 @@ class WebBridgeApi:
         pdata["proxy_region"] = state.get("proxy_region", "IP - Nhật Bản")
         pdata["auto_upload_tiktok"] = state.get("auto_upload_tiktok", True)
         pdata["only_shorts"] = state.get("only_shorts", True)
+        pdata["skip_horizontal"] = state.get("skip_horizontal", True)
         return self._project_manager.save_project(proj, pdata)
 
     # ==========================================
@@ -468,6 +474,12 @@ class WebBridgeApi:
 
         # VÒNG LẶP QUÉT LIÊN TỤC KHÔNG NGHỈ (Chỉ dừng khi người dùng bấm nút Dừng)
         while self._is_worker_running:
+            # Nạp lại cấu hình dự án để bắt kịp các tùy chọn bật/tắt động của người dùng
+            curr_pdata = self._project_manager.load_project(proj)
+            auto_post_flag = curr_pdata.get("auto_upload_tiktok", True)
+            proj_only_shorts = curr_pdata.get("only_shorts", True)
+            proj_skip_horizontal = curr_pdata.get("skip_horizontal", True)
+
             # 1. KIỂM TRA LỊCH ĐĂNG (Tối ưu RAM/CPU & Tự động mở GPM trước giờ đăng)
             sched_status = YouTubeScheduleAnalyzer.get_schedule_status(schedules, prewarm_mins=10)
 
@@ -558,18 +570,18 @@ class WebBridgeApi:
                     # Kênh chưa được chia API trong Quản lý Key -> CHỈ quét qua Turbo RSS (0 Quota)
                     # Tuyệt đối không dùng chung hay lấy trộm API của kênh khác hoặc kho tổng!
                     engine = "Turbo RSS (0 Quota - Kênh chưa cấp API)"
-                    vids = yt_api.get_channel_videos_rss(c_url, limit=2)
+                    vids = yt_api.get_channel_videos_rss(c_url, limit=5)
                 else:
                     # Kênh ĐÃ ĐƯỢC chia API riêng: Luân phiên Turbo RSS & API v3 của riêng kênh
                     use_rss = (cycle + c_idx) % 2 == 1
                     if use_rss:
                         engine = "Turbo RSS"
-                        vids = yt_api.get_channel_videos_rss(c_url, limit=2)
+                        vids = yt_api.get_channel_videos_rss(c_url, limit=5)
                         if not vids and k_mgr and k_mgr.get_keys():
                             engine = f"YouTube API v3 ({len(assigned_k)} keys riêng - Đảo lượt)"
                             vids, _ = yt_api.get_channel_videos_v3(
                                 channel_url=c_url,
-                                limit=2,
+                                limit=5,
                                 key_manager=k_mgr,
                                 on_key_rotate=channel_key_rotate
                             )
@@ -577,16 +589,16 @@ class WebBridgeApi:
                         engine = f"YouTube API v3 ({len(assigned_k)} keys riêng)"
                         vids, err_v3 = yt_api.get_channel_videos_v3(
                             channel_url=c_url,
-                            limit=2,
+                            limit=5,
                             key_manager=k_mgr,
                             on_key_rotate=channel_key_rotate
                         )
                         if not vids:
                             engine = "Turbo RSS (Đảo lượt)"
-                            vids = yt_api.get_channel_videos_rss(c_url, limit=2)
+                            vids = yt_api.get_channel_videos_rss(c_url, limit=5)
 
                 if not vids:
-                    vids = downloader.get_channel_videos(c_url, limit=2)
+                    vids = downloader.get_channel_videos(c_url, limit=5)
                     engine = "yt-dlp Cào dự phòng"
 
                 t_dur = time.perf_counter() - t0_s
@@ -608,6 +620,8 @@ class WebBridgeApi:
                 target_pid = ch_cfg.get("profile_id", "")
                 quality = ch_cfg.get("quality", "720")
                 process_mode = ch_cfg.get("process_mode", "extend_61s")
+                ch_only_shorts = ch_cfg.get("only_shorts", proj_only_shorts)
+                ch_skip_horizontal = ch_cfg.get("skip_horizontal", proj_skip_horizontal)
 
                 if not target_pid:
                     for prof in tt_cfg.get("profiles", []):
@@ -660,6 +674,36 @@ class WebBridgeApi:
                 if not unprocessed_videos:
                     if videos:
                         self.emit_log(f"ℹ [{idx+1}/{total}] Kênh '{ch_url[:40]}...': Video mới nhất '{videos[0].get('title', '')[:30]}...' đã up trước đó (đã lưu lịch sử). Tiếp tục theo dõi...")
+                    continue
+
+                # --- LỌC KIỂM TRA CHỈ TẢI SHORTS & BỎ QUA VIDEO NGANG (0.1s, 0 QUOTA, KHÔNG TẢI FILE THỪA) ---
+                valid_videos = []
+                for v in unprocessed_videos:
+                    v_id = v.get("id")
+                    title = v.get("title", f"Video {v_id}")
+
+                    # 1. Chế độ "Chỉ Short"
+                    if ch_only_shorts:
+                        is_sh = downloader.is_shorts(v_id)
+                        if not is_sh:
+                            self.emit_log(f"⏭ [{idx+1}/{total}] [Chỉ tải Shorts] Bỏ qua video thường '{title[:35]}...' ({v_id}). Không phải Shorts!")
+                            processed_videos.add(v_id)
+                            continue
+
+                    # 2. Chế độ "Bỏ qua video ngang"
+                    if ch_skip_horizontal:
+                        is_horiz = downloader.is_horizontal(v_id)
+                        if is_horiz:
+                            self.emit_log(f"⏭ [{idx+1}/{total}] [Bỏ qua video ngang] Bỏ qua video '{title[:35]}...' ({v_id}) vì có khung hình ngang (Landscape)!")
+                            processed_videos.add(v_id)
+                            continue
+
+                    valid_videos.append(v)
+
+                self._save_processed_videos(processed_videos)
+                unprocessed_videos = valid_videos
+
+                if not unprocessed_videos:
                     continue
 
                 # Kích hoạt pre-warm GPM profile song song khi có video mới cần up (chỉ khi chưa mở sẵn)
@@ -716,6 +760,17 @@ class WebBridgeApi:
 
                     if not dl_ok:
                         self.emit_queue_item(v_id, title, 0, "Lỗi tải")
+                        continue
+
+                    # Xác minh an toàn sau tải: nếu bật "Bỏ qua video ngang", kiểm tra kích thước file thực tế bằng ffprobe
+                    if ch_skip_horizontal and processor.is_horizontal_video(raw_path):
+                        self.emit_log(f"⏭ [{idx+1}/{total}] [Bỏ qua video ngang] File '{title[:35]}...' ({v_id}) sau tải phát hiện kích thước khung hình ngang (Landscape). Bỏ qua!")
+                        self.emit_queue_item(v_id, title, 0, "Bỏ qua (Video ngang)")
+                        if os.path.exists(raw_path):
+                            try:
+                                os.remove(raw_path)
+                            except Exception:
+                                pass
                         continue
 
                     video_to_upload = raw_path

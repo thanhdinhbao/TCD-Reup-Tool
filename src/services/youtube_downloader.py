@@ -73,7 +73,10 @@ class YouTubeDownloader:
 
     def _extract_single_video_id(self, url: str) -> Optional[str]:
         """Check if URL points directly to a single video or short."""
-        m = re.search(r"(?:v=|youtu\.be/|shorts/)([a-zA-Z0-9_-]{11})", url)
+        clean = str(url).strip()
+        if re.match(r"^[a-zA-Z0-9_-]{11}$", clean):
+            return clean
+        m = re.search(r"(?:v=|youtu\.be/|shorts/)([a-zA-Z0-9_-]{11})", clean)
         return m.group(1) if m else None
 
     def _find_node(self) -> Optional[str]:
@@ -100,6 +103,102 @@ class YouTubeDownloader:
     def _find_ffmpeg(self) -> str:
         cmd = shutil.which("ffmpeg")
         return cmd if cmd else "ffmpeg"
+
+    def _find_ffprobe(self) -> str:
+        cmd = shutil.which("ffprobe")
+        if cmd:
+            return cmd
+        candidates = [
+            r"C:\ProgramData\chocolatey\bin\ffprobe.exe",
+            os.path.join(os.path.dirname(self._find_ffmpeg()), "ffprobe.exe"),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return "ffprobe"
+
+    def is_shorts(self, video_url_or_id: str, timeout: float = 4.0) -> bool:
+        """
+        Kiểm tra siêu tốc video có phải là YouTube Shorts hay không (0.1s - 0.2s, 0 quota).
+        Sử dụng cơ chế HTTP HEAD request tới https://www.youtube.com/shorts/{id}:
+        - Trả về 200 OK -> Là YouTube Shorts.
+        - Trả về 303 Redirect -> Là video thông thường (/watch?v=...).
+        """
+        vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
+        if not vid_id or len(vid_id) < 5:
+            return False
+
+        if "/shorts/" in str(video_url_or_id):
+            return True
+
+        url = f"https://www.youtube.com/shorts/{vid_id}"
+
+        class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirectHandler)
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            method="HEAD"
+        )
+        for _ in range(2):
+            try:
+                resp = opener.open(req, timeout=timeout)
+                return resp.status == 200
+            except urllib.error.HTTPError as e:
+                if e.code in (301, 302, 303, 307, 308, 404):
+                    return False
+            except Exception as e:
+                logger.debug(f"is_shorts check attempt error for {vid_id}: {e}")
+                time.sleep(0.2)
+        return False
+
+    def is_horizontal(self, video_url_or_id: str = "", video_file: Optional[str] = None) -> bool:
+        """
+        Kiểm tra video có phải là video ngang (Landscape: width > height) hay không.
+        - Nếu truyền file video: dùng ffprobe kiểm tra kích thước thực tế (0.01s).
+        - Nếu truyền URL/ID:
+            + Nếu là Shorts -> chắc chắn là video dọc (False).
+            + Nếu là video thường -> kiểm tra qua get_video_info. Nếu không lấy được, video thường YouTube mặc định là video ngang (True).
+        """
+        if video_file and os.path.exists(video_file):
+            try:
+                cmd = [
+                    self._find_ffprobe(),
+                    "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height",
+                    "-of", "csv=s=x:p=0",
+                    video_file
+                ]
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+                out = res.stdout.decode().strip()
+                if "x" in out:
+                    w, h = map(int, out.split("x"))
+                    if w > 0 and h > 0:
+                        return w > h
+            except Exception as e:
+                logger.debug(f"ffprobe is_horizontal check error: {e}")
+
+        if video_url_or_id:
+            # Shorts YouTube luôn là video dọc 9:16 hoặc vuông 1:1, không bao giờ là video ngang
+            if self.is_shorts(video_url_or_id):
+                return False
+
+            vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
+            target_url = f"https://www.youtube.com/watch?v={vid_id}"
+            info = self.get_video_info(target_url)
+            w = info.get("width", 0)
+            h = info.get("height", 0)
+            if w > 0 and h > 0:
+                return w > h
+            return True
+
+        return False
 
     def _get_base_ydl_opts(self) -> dict:
         opts = {
@@ -222,11 +321,13 @@ class YouTubeDownloader:
                         "duration": info.get("duration", 0),
                         "uploader": info.get("uploader", ""),
                         "description": info.get("description", ""),
+                        "width": info.get("width") or 0,
+                        "height": info.get("height") or 0,
                     }
         except Exception as e:
             logger.error(f"Error retrieving video info: {e}")
 
-        return {"id": "", "title": "", "duration": 0}
+        return {"id": "", "title": "", "duration": 0, "width": 0, "height": 0}
 
     def _lay_size_qua_range(self, url: str, timeout: int = 8) -> int:
         """Kỹ thuật 2: Đo dung lượng tức thì qua Range: bytes=0-0 trong ~50 mili-giây."""

@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,40 @@ class VideoProcessor:
             logger.error(f"FFmpeg duration check error: {e}")
 
         return 0.0
+
+    def get_video_dimensions(self, video_path: str) -> Tuple[int, int]:
+        """Get (width, height) using ffprobe."""
+        if not os.path.exists(video_path):
+            return 0, 0
+        try:
+            cmd = [
+                self.ffprobe_path,
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0",
+                video_path
+            ]
+            res = subprocess.run(
+                cmd,
+                startupinfo=self._get_startupinfo(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=True
+            )
+            out_str = res.stdout.decode().strip()
+            if "x" in out_str:
+                parts = out_str.split("x")
+                return int(parts[0]), int(parts[1])
+        except Exception as e:
+            logger.debug(f"ffprobe dimension check failed: {e}")
+        return 0, 0
+
+    def is_horizontal_video(self, video_path: str) -> bool:
+        """Check if video file has horizontal aspect ratio (width > height)."""
+        w, h = self.get_video_dimensions(video_path)
+        return w > h if (w > 0 and h > 0) else False
 
     def edit_video_for_tiktok(
         self,
