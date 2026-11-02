@@ -1,13 +1,49 @@
 {
     "name": "23523523",
-    "channels": [],
-    "threads": 500,
+    "channels": [
+        "https://youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg"
+    ],
+    "threads": 10,
     "use_proxy": false,
     "proxy_region": "IP - Nhật Bản",
     "auto_upload_tiktok": true,
     "only_shorts": true,
     "telegram_enabled": true,
-    "schedule": [],
-    "schedule_mode": "multi",
-    "queue": []
+    "schedule": [
+        {
+            "start": "00:00",
+            "end": "23:59"
+        }
+    ],
+    "schedule_mode": "all_time",
+    "queue": [],
+    "skip_horizontal": true,
+    "scan_engine": "both",
+    "min_duration": 20,
+    "tiktok_config": {
+        "timeout_upload_sec": 30,
+        "wait_next_video_sec": 180,
+        "caption_mode": "keep_title",
+        "hashtag_count": 0,
+        "profiles": [
+            {
+                "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
+                "profile_name": "tik1",
+                "assigned_channels": [
+                    "https://youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg"
+                ]
+            }
+        ],
+        "upload_timeout": 30,
+        "next_video_delay": 180,
+        "gpm_open_mode": "on_new_video",
+        "channels_config": {
+            "https://youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg": {
+                "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
+                "quality": "720_fps",
+                "fps": "240",
+                "process_mode": "direct"
+            }
+        }
+    }
 }

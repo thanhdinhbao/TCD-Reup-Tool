@@ -729,11 +729,11 @@ class WebBridgeApi:
                     title = v.get("title", f"Video {v_id}")
                     v_url = v.get("url", f"https://www.youtube.com/watch?v={v_id}")
 
-                    # Đặt tên file theo Title để TikTok tự động điền Description chuẩn 100% (0s trễ)
+                    # Đặt tên file theo Title để TikTok tự động điền Description chuẩn 100% (0s trễ), giữ nguyên tên gốc không gắn hậu tố
                     safe_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', title).strip()[:100]
                     file_stem = safe_title if safe_title else v_id
                     raw_path = os.path.join(downloads_dir, f"{file_stem}.mp4")
-                    render_path = os.path.join(output_dir, f"{file_stem}_tiktok.mp4")
+                    render_path = os.path.join(output_dir, f"{file_stem}.mp4")
 
                     # Kích hoạt tải đón đầu ngầm video kế tiếp (nếu danh sách có nhiều video)
                     if v_idx + 1 < len(unprocessed_videos):
@@ -824,7 +824,7 @@ class WebBridgeApi:
                         fps_val = ch_cfg.get("fps", "60")
                         self.emit_queue_item(v_id, title, 75, f"Nén FPS {fps_val}...")
                         self.emit_log(f"🎞 Đang nén FPS ({fps_val} FPS) & bơm rác MP4 theo file fps.py: {title}...")
-                        fps_render_path = os.path.join(output_dir, f"{file_stem}_fps{fps_val}.mp4")
+                        fps_render_path = os.path.join(output_dir, f"{file_stem}.mp4")
                         t0_fps = time.perf_counter()
                         fps_ok = processor.process_fps_compression(
                             input_path=video_to_upload,

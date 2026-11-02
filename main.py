@@ -9,16 +9,21 @@ logger = setup_logger(__name__)
 
 def main():
     if getattr(sys, 'frozen', False):
-        base_path = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
+        asset_base = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
+        data_base = os.path.dirname(sys.executable)
     else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        asset_base = os.path.dirname(os.path.abspath(__file__))
+        data_base = asset_base
 
-    html_path = os.path.join(base_path, "src", "web", "index.html")
+    html_path = os.path.join(asset_base, "src", "web", "index.html")
+    if not os.path.exists(html_path):
+        html_path = os.path.join(data_base, "src", "web", "index.html")
+
     if not os.path.exists(html_path):
         logger.error(f"HTML entry not found at: {html_path}")
         return
 
-    bridge = WebBridgeApi(base_path=base_path)
+    bridge = WebBridgeApi(base_path=data_base)
 
     window = webview.create_window(
         title="TCD REUP TOOL | License Vĩnh viễn | Thanh Code Dao @thanhcodedao",

@@ -490,15 +490,16 @@ class YouTubeDownloader:
                     if self._native_range_download(mobile_url, output_path, num_chunks=12):
                         return True
 
-        # Tối ưu siêu tốc: Tải song song 2 luồng độc lập (Video + Audio) bằng 2 Thread rồi FFmpeg merge (-c copy)
+        # Tối ưu siêu tốc theo chuẩn test.py: Tải song song 2 luồng độc lập (Video + Audio) bằng 2 Thread rồi FFmpeg merge (-c copy)
         h = int(quality) if str(quality).isdigit() else 720
         long_side_map = {360: 640, 480: 854, 720: 1280, 1080: 1920, 1440: 2560, 2160: 3840}
         max_long = long_side_map.get(h, int(h * 16 / 9) if h else 1280)
         ffmpeg_bin = self._find_ffmpeg()
 
         if ffmpeg_bin:
-            temp_v = f"{output_path}.v_tmp.mp4"
-            temp_a = f"{output_path}.a_tmp.m4a"
+            temp_id = int(time.time() * 1000)
+            temp_v = f"{output_path}.v_{temp_id}.mp4"
+            temp_a = f"{output_path}.a_{temp_id}.m4a"
 
             opts_common = {
                 "noplaylist": True,
@@ -515,9 +516,8 @@ class YouTubeDownloader:
             }
 
             opts_v = dict(opts_common)
-            # Hỗ trợ cả Shorts dọc (720x1280) và video ngang (1280x720), ưu tiên AVC/H.264 nét cao
-            opts_v["format"] = f"bestvideo[width<={max_long}][height<={max_long}]/bestvideo[height<={h}]/bestvideo"
-            opts_v["format_sort"] = [f"res:{h}", "+vcodec:avc"]
+            opts_v["format"] = f"bestvideo[width<={max_long}][height<={max_long}]/bestvideo[height<={h}]/bestvideo" if h else "bestvideo"
+            opts_v["format_sort"] = [f"res:{h}", "+vcodec:avc"] if h else ["+vcodec:avc"]
             opts_v["outtmpl"] = temp_v
 
             opts_a = dict(opts_common)
@@ -525,17 +525,17 @@ class YouTubeDownloader:
             opts_a["outtmpl"] = temp_a
 
             try:
-                def dl_v():
+                def dl_v_worker():
                     with yt_dlp.YoutubeDL(opts_v) as ydl:
-                        ydl.download([video_url])
+                        ydl.extract_info(video_url, download=True)
 
-                def dl_a():
+                def dl_a_worker():
                     with yt_dlp.YoutubeDL(opts_a) as ydl:
                         ydl.download([video_url])
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                    f_v = pool.submit(dl_v)
-                    f_a = pool.submit(dl_a)
+                    f_v = pool.submit(dl_v_worker)
+                    f_a = pool.submit(dl_a_worker)
                     f_v.result()
                     f_a.result()
 
@@ -548,7 +548,7 @@ class YouTubeDownloader:
                         "-movflags", "+faststart",
                         output_path
                     ]
-                    res = subprocess.run(merge_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(merge_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
                     for tmp_f in (temp_v, temp_a):
                         if os.path.exists(tmp_f):
                             try:
@@ -556,11 +556,10 @@ class YouTubeDownloader:
                             except Exception:
                                 pass
 
-                    if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
-                        logger.info(f"⚡ [2-Thread FFmpeg Merge] Đã tải và ghép video + audio thành công trong 2 luồng: {output_path}")
+                    if os.path.exists(output_path) and os.path.getsize(output_path) > 1024:
                         return True
             except Exception as e:
-                logger.warning(f"2 luồng song song gặp lỗi, chuyển sang fallback 1 luồng: {e}")
+                logger.warning(f"2 luồng song song gặp lỗi, chuyển sang fallback: {e}")
                 for tmp_f in (temp_v, temp_a):
                     if os.path.exists(tmp_f):
                         try:
@@ -568,30 +567,27 @@ class YouTubeDownloader:
                         except Exception:
                             pass
 
-        # Fallback 1 luồng truyền thống nếu không có ffmpeg hoặc 2 luồng lỗi
-        format_str = (
-            f"bestvideo[width<={max_long}][height<={max_long}]+bestaudio/"
-            f"bestvideo[height<={h}]+bestaudio/"
-            f"best[width<={max_long}][height<={max_long}]/best"
-        )
-
-        ffmpeg_bin = self._find_ffmpeg()
+        # Fallback 1 luồng truyền thống
         opts = {
-            "format": format_str,
+            "noplaylist": True,
+            "continuedl": True,
+            "retries": 10,
+            "fragment_retries": 10,
+            "concurrent_fragment_downloads": 32,
+            "windowsfilenames": True,
+            "overwrites": True,
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+            "logger": SilentLogger(),
+            "format": (
+                f"bestvideo[width<={max_long}][height<={max_long}]+bestaudio/"
+                f"bestvideo[height<={h}]+bestaudio/"
+                f"best[height<={h}]/best"
+            ),
             "format_sort": [f"res:{h}", "+vcodec:avc"],
             "outtmpl": output_path,
             "merge_output_format": "mp4",
-            "overwrites": True,
-            "continuedl": True,
-            "nocheckcertificate": True,
-            "noplaylist": True,
-            "concurrent_fragment_downloads": 16,
-            "retries": 10,
-            "fragment_retries": 10,
-            "windowsfilenames": True,
-            "quiet": True,
-            "no_warnings": True,
-            "logger": SilentLogger(),
         }
         if ffmpeg_bin:
             opts["ffmpeg_location"] = ffmpeg_bin
