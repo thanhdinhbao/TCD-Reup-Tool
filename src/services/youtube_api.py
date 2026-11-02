@@ -273,12 +273,46 @@ class YouTubeAPIClient:
 
         return None, None
 
+    def resolve_channel_id_auto(self, channel_url: str) -> Optional[str]:
+        """Tự động trích xuất hoặc phân giải UC... channel ID (kể cả từ @handle) mà không tốn Quota API."""
+        direct_id = self._extract_channel_id_from_url(channel_url)
+        if direct_id and direct_id.startswith("UC"):
+            return direct_id
+
+        handle = self._extract_handle_from_url(channel_url)
+        if not handle:
+            return None
+
+        clean_handle = handle.lower().lstrip("@")
+        if not hasattr(self, "_handle_cache"):
+            self._handle_cache = {}
+        if clean_handle in self._handle_cache:
+            return self._handle_cache[clean_handle]
+
+        # Quét HTML trang chủ kênh để lấy channelId chính thức
+        try:
+            req = urllib.request.Request(
+                f"https://www.youtube.com/@{clean_handle}",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            m = re.search(r'["\']channelId["\']:\s*["\'](UC[\w-]+)["\']', html) or re.search(r'itemprop="channelId"\s*content="(UC[\w-]+)"', html)
+            if m:
+                cid = m.group(1)
+                self._handle_cache[clean_handle] = cid
+                return cid
+        except Exception as e:
+            logger.debug(f"resolve_channel_id_auto error for {handle}: {e}")
+
+        return None
+
     def get_channel_videos_rss(self, channel_url: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
         Kỹ thuật 4: Quét video mới nhất qua YouTube Atom RSS Feed.
         Tốc độ phản hồi cực nhanh (~50ms - 300ms), 0 Quota Google API, không phụ thuộc trình duyệt.
         """
-        ch_id = self._extract_channel_id_from_url(channel_url)
+        ch_id = self.resolve_channel_id_auto(channel_url)
         if not ch_id or not ch_id.startswith("UC"):
             return []
 
@@ -316,6 +350,55 @@ class YouTubeAPIClient:
         except Exception as e:
             logger.debug(f"RSS lookup error for {channel_url}: {e}")
             return []
+
+    def get_channel_videos_combined(
+        self,
+        channel_url: str,
+        limit: int = 5,
+        key_manager: Optional[APIKeyManager] = None,
+        on_key_rotate: Optional[Callable[[str, str], None]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Quét kết hợp cả 2: YouTube Atom RSS Feed + YouTube Data API v3.
+        Hợp nhất danh sách video từ cả 2 nguồn, loại bỏ trùng lặp theo ID và giữ thứ tự mới nhất.
+        Đảm bảo không bao giờ bỏ sót video (ngay cả khi RSS hoặc API v3 có độ trễ ngắn).
+        """
+        combined: Dict[str, Dict[str, Any]] = {}
+
+        # 1. Quét qua RSS
+        try:
+            rss_vids = self.get_channel_videos_rss(channel_url, limit=limit)
+            for v in rss_vids:
+                if v.get("id"):
+                    combined[v["id"]] = v
+        except Exception as e:
+            logger.debug(f"Combined RSS error: {e}")
+
+        # 2. Quét qua API v3 nếu có key
+        mgr = key_manager or self.key_manager
+        if mgr and mgr.get_keys():
+            try:
+                api_vids, _ = self.get_channel_videos_v3(
+                    channel_url=channel_url,
+                    limit=limit,
+                    key_manager=mgr,
+                    on_key_rotate=on_key_rotate
+                )
+                for v in api_vids:
+                    vid_id = v.get("id")
+                    if not vid_id:
+                        continue
+                    if vid_id not in combined:
+                        combined[vid_id] = v
+                    else:
+                        if v.get("duration") and not combined[vid_id].get("duration"):
+                            combined[vid_id]["duration"] = v["duration"]
+                        if v.get("published_at") and not combined[vid_id].get("published_at"):
+                            combined[vid_id]["published_at"] = v["published_at"]
+            except Exception as e:
+                logger.debug(f"Combined API v3 error: {e}")
+
+        return list(combined.values())[:limit]
 
     def get_channel_videos_v3(
         self,

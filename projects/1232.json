@@ -7,7 +7,7 @@
     "use_proxy": false,
     "proxy_region": "IP - Nhật Bản",
     "auto_upload_tiktok": true,
-    "only_shorts": true,
+    "only_shorts": false,
     "telegram_enabled": true,
     "queue": [],
     "tiktok_config": {
@@ -32,7 +32,8 @@
                 "quality": "720",
                 "process_mode": "direct"
             }
-        }
+        },
+        "gpm_open_mode": "on_new_video"
     },
     "schedule": [
         {
@@ -41,5 +42,7 @@
         }
     ],
     "schedule_mode": "all_time",
-    "skip_horizontal": true
+    "skip_horizontal": true,
+    "scan_engine": "both",
+    "min_duration": 20
 }

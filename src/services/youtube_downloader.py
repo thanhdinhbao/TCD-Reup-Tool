@@ -117,12 +117,15 @@ class YouTubeDownloader:
                 return c
         return "ffprobe"
 
-    def is_shorts(self, video_url_or_id: str, timeout: float = 4.0) -> bool:
+    def is_shorts(self, video_url_or_id: str, timeout: float = 4.0, duration: float = 0.0) -> bool:
         """
         Kiểm tra siêu tốc video có phải là YouTube Shorts hay không (0.1s - 0.2s, 0 quota).
-        Sử dụng cơ chế HTTP HEAD request tới https://www.youtube.com/shorts/{id}:
-        - Trả về 200 OK -> Là YouTube Shorts.
-        - Trả về 303 Redirect -> Là video thông thường (/watch?v=...).
+        Đa tầng bảo vệ:
+        1. URL chứa '/shorts/' -> Chắc chắn là Shorts.
+        2. Duration đã biết: Nếu 0 < duration <= 60s -> Shorts.
+        3. HTTP HEAD tới https://www.youtube.com/shorts/{id} theo cơ chế redirect:
+           - Trình duyệt tự theo dõi redirect: nếu URL kết quả vẫn là /shorts/ -> Shorts.
+           - Nếu chuyển sang /watch?v=... -> Video thường.
         """
         vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
         if not vid_id or len(vid_id) < 5:
@@ -131,13 +134,12 @@ class YouTubeDownloader:
         if "/shorts/" in str(video_url_or_id):
             return True
 
+        if 0 < duration <= 60:
+            return True
+        elif duration > 180:
+            return False
+
         url = f"https://www.youtube.com/shorts/{vid_id}"
-
-        class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                return None
-
-        opener = urllib.request.build_opener(NoRedirectHandler)
         req = urllib.request.Request(
             url,
             headers={
@@ -147,14 +149,25 @@ class YouTubeDownloader:
         )
         for _ in range(2):
             try:
-                resp = opener.open(req, timeout=timeout)
-                return resp.status == 200
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    final_url = resp.url
+                    if "/shorts/" in final_url:
+                        return True
+                    if "/watch" in final_url:
+                        return False
             except urllib.error.HTTPError as e:
-                if e.code in (301, 302, 303, 307, 308, 404):
+                if e.code in (301, 302, 303, 307, 308):
+                    loc = e.headers.get("Location", "")
+                    if "/watch" in loc:
+                        return False
+                    if "/shorts/" in loc:
+                        return True
+                elif e.code == 404:
                     return False
             except Exception as e:
                 logger.debug(f"is_shorts check attempt error for {vid_id}: {e}")
                 time.sleep(0.2)
+
         return False
 
     def is_horizontal(self, video_url_or_id: str = "", video_file: Optional[str] = None) -> bool:

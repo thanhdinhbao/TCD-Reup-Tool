@@ -10,6 +10,8 @@ let appState = {
   auto_upload_tiktok: true,
   only_shorts: true,
   skip_horizontal: true,
+  scan_engine: 'both',
+  min_duration: 20,
   telegram_enabled: false,
   telegram_token: '',
   telegram_chat_ids: [],
@@ -80,8 +82,12 @@ function renderInitialUI() {
   const selRegion = document.getElementById('select-proxy-region');
   if (selRegion) selRegion.value = appState.proxy_region || 'IP - Nhật Bản';
 
-  // Threads
+  // Threads & Scan Settings
   document.getElementById('input-threads').value = appState.threads || 500;
+  const elScanEngine = document.getElementById('select-scan-engine');
+  if (elScanEngine) elScanEngine.value = appState.scan_engine || 'both';
+  const elMinDur = document.getElementById('input-min-duration');
+  if (elMinDur) elMinDur.value = (appState.min_duration !== undefined) ? appState.min_duration : 20;
 
   // Bottom Toggles
   document.getElementById('chk-auto-upload-tiktok').checked = !!appState.auto_upload_tiktok;
@@ -175,6 +181,8 @@ function setupUIEventListeners() {
       appState.schedule = res.schedule;
       if (res.only_shorts !== undefined) appState.only_shorts = res.only_shorts;
       if (res.skip_horizontal !== undefined) appState.skip_horizontal = res.skip_horizontal;
+      if (res.scan_engine !== undefined) appState.scan_engine = res.scan_engine;
+      if (res.min_duration !== undefined) appState.min_duration = res.min_duration;
       if (res.auto_upload_tiktok !== undefined) appState.auto_upload_tiktok = res.auto_upload_tiktok;
       if (res.tiktok_config) appState.tiktok_config = res.tiktok_config;
       renderInitialUI();
@@ -257,7 +265,7 @@ function setupUIEventListeners() {
   });
 
   // Setting toggles change -> auto save
-  ['input-threads', 'chk-auto-upload-tiktok', 'chk-only-shorts', 'chk-skip-horizontal'].forEach(id => {
+  ['input-threads', 'chk-auto-upload-tiktok', 'chk-only-shorts', 'chk-skip-horizontal', 'select-scan-engine', 'input-min-duration'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', () => {
@@ -317,6 +325,10 @@ async function saveCurrentProjectState() {
   if (elShorts) appState.only_shorts = elShorts.checked;
   const elSkipH = document.getElementById('chk-skip-horizontal');
   if (elSkipH) appState.skip_horizontal = elSkipH.checked;
+  const elScanEngine = document.getElementById('select-scan-engine');
+  if (elScanEngine) appState.scan_engine = elScanEngine.value;
+  const elMinDur = document.getElementById('input-min-duration');
+  if (elMinDur) appState.min_duration = parseInt(elMinDur.value) || 0;
 
   try {
     await window.pywebview.api.save_project_state({
@@ -326,7 +338,9 @@ async function saveCurrentProjectState() {
       proxy_region: appState.proxy_region,
       auto_upload_tiktok: appState.auto_upload_tiktok,
       only_shorts: appState.only_shorts,
-      skip_horizontal: appState.skip_horizontal
+      skip_horizontal: appState.skip_horizontal,
+      scan_engine: appState.scan_engine,
+      min_duration: appState.min_duration
     });
   } catch (err) {
     console.error('Failed saving project state:', err);
@@ -470,10 +484,17 @@ function setupModalHandlers() {
   });
 
   // Modal 6: TikTok Config (Redesigned)
-  document.getElementById('btn-open-tiktok-config').addEventListener('click', async () => {
-    renderTikTokConfigModal();
-    openModal('modal-tiktok-config');
-  });
+  const btnOpenTikTok = document.getElementById('btn-open-tiktok-config');
+  if (btnOpenTikTok) {
+    btnOpenTikTok.addEventListener('click', async () => {
+      try {
+        renderTikTokConfigModal();
+      } catch (err) {
+        console.error('Error rendering TikTok config modal:', err);
+      }
+      openModal('modal-tiktok-config');
+    });
+  }
 
   document.getElementById('btn-sync-gpm').addEventListener('click', async () => {
     const res = await window.pywebview.api.sync_gpm_profiles();
@@ -589,15 +610,22 @@ async function refreshApiPoolData() {
 
 function renderTikTokConfigModal() {
   const tbody = document.getElementById('tbody-tiktok-channels');
+  if (!tbody) return;
   tbody.innerHTML = '';
 
   const cfg = appState.tiktok_config || {};
-  document.getElementById('input-tiktok-upload-timeout').value = cfg.upload_timeout || 30;
-  document.getElementById('input-tiktok-next-delay').value = cfg.next_video_delay || 180;
-  document.getElementById('select-caption-mode').value = cfg.caption_mode || 'keep_title';
+  const elTimeout = document.getElementById('input-tiktok-upload-timeout');
+  if (elTimeout) elTimeout.value = cfg.upload_timeout || 30;
+  const elNextDelay = document.getElementById('input-tiktok-next-delay');
+  if (elNextDelay) elNextDelay.value = cfg.next_video_delay || 180;
+  const elGpmMode = document.getElementById('select-gpm-open-mode');
+  if (elGpmMode) elGpmMode.value = cfg.gpm_open_mode || 'on_new_video';
+  const elCaption = document.getElementById('select-caption-mode');
+  if (elCaption) elCaption.value = cfg.caption_mode || 'keep_title';
 
   const gpmProfiles = appState.gpm_profiles || [];
-  document.getElementById('lbl-gpm-profiles-count').textContent = `Đã nạp ${gpmProfiles.length} profiles`;
+  const elCount = document.getElementById('lbl-gpm-profiles-count');
+  if (elCount) elCount.textContent = `Đã nạp ${gpmProfiles.length} profiles`;
 
   const channels = appState.channels || [];
   if (channels.length === 0) {
@@ -612,6 +640,7 @@ function renderTikTokConfigModal() {
     const cur = chSettings[ch] || {};
     const selectedPid = cur.profile_id || '';
     const selectedQuality = cur.quality || '720';
+    const selectedFps = cur.fps || '60';
     const selectedMode = cur.process_mode || 'extend_61s';
 
     // Build GPM Profiles select options
@@ -634,7 +663,16 @@ function renderTikTokConfigModal() {
         <select class="select-control sel-quality" data-ch="${ch}" style="width: 100%;">
           <option value="720" ${selectedQuality === '720' ? 'selected' : ''}>⚡ 720p (Siêu tốc)</option>
           <option value="1080" ${selectedQuality === '1080' ? 'selected' : ''}>🎬 1080p (Full HD)</option>
+          <option value="720_fps" ${selectedQuality === '720_fps' ? 'selected' : ''}>🎞 720p Nén FPS</option>
         </select>
+        <div class="fps-wrapper" data-ch="${ch}" style="margin-top: 4px; display: ${selectedQuality === '720_fps' ? 'flex' : 'none'}; align-items: center; gap: 4px;">
+          <span style="font-size: 11px; color: var(--cyan); font-weight: 600;">FPS:</span>
+          <select class="select-control sel-fps" data-ch="${ch}" style="font-size: 11px; padding: 2px 4px; width: 100%;">
+            <option value="60" ${selectedFps === '60' ? 'selected' : ''}>60 FPS (scale 2)</option>
+            <option value="120" ${selectedFps === '120' ? 'selected' : ''}>120 FPS (scale 6)</option>
+            <option value="240" ${selectedFps === '240' ? 'selected' : ''}>240 FPS (scale 12)</option>
+          </select>
+        </div>
       </td>
       <td>
         <select class="select-control sel-process-mode" data-ch="${ch}" style="width: 100%;">
@@ -650,6 +688,17 @@ function renderTikTokConfigModal() {
       </td>
     `;
     tbody.appendChild(tr);
+  });
+
+  // Attach change listeners for dynamic FPS dropdown display
+  tbody.querySelectorAll('.sel-quality').forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      const ch = e.target.getAttribute('data-ch');
+      const fpsWrap = tbody.querySelector(`.fps-wrapper[data-ch="${CSS.escape(ch)}"]`);
+      if (fpsWrap) {
+        fpsWrap.style.display = e.target.value === '720_fps' ? 'flex' : 'none';
+      }
+    });
   });
 
   // Attach test start/stop button handlers
@@ -690,6 +739,8 @@ async function saveTikTokConfigFromModal() {
   const cfg = appState.tiktok_config || {};
   cfg.upload_timeout = parseInt(document.getElementById('input-tiktok-upload-timeout').value) || 30;
   cfg.next_video_delay = parseInt(document.getElementById('input-tiktok-next-delay').value) || 180;
+  const elGpmMode = document.getElementById('select-gpm-open-mode');
+  if (elGpmMode) cfg.gpm_open_mode = elGpmMode.value;
   cfg.caption_mode = document.getElementById('select-caption-mode').value;
 
   const channels_config = {};
@@ -699,13 +750,16 @@ async function saveTikTokConfigFromModal() {
     const ch = sel.getAttribute('data-ch');
     const pid = sel.value;
     const qSel = document.querySelector(`.sel-quality[data-ch="${CSS.escape(ch)}"]`);
+    const fSel = document.querySelector(`.sel-fps[data-ch="${CSS.escape(ch)}"]`);
     const mSel = document.querySelector(`.sel-process-mode[data-ch="${CSS.escape(ch)}"]`);
     const q = qSel ? qSel.value : '720';
+    const fps = fSel ? fSel.value : '60';
     const m = mSel ? mSel.value : 'extend_61s';
 
     channels_config[ch] = {
       profile_id: pid,
       quality: q,
+      fps: fps,
       process_mode: m
     };
 

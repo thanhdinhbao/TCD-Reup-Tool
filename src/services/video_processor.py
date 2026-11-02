@@ -201,6 +201,67 @@ class VideoProcessor:
         w, h = self.get_video_dimensions(video_path)
         return w > h if (w > 0 and h > 0) else False
 
+    def process_fps_compression(
+        self,
+        input_path: str,
+        output_path: str,
+        fps: str = "60"
+    ) -> bool:
+        """
+        Xử lý nén FPS và bơm rác MP4 theo logic file fps.py:L171-L276:
+        - Tỉ lệ scale itsscale:
+            + 60 FPS -> scale 2
+            + 120 FPS -> scale 6
+            + 240 FPS -> scale 12
+        - Lệnh FFmpeg: -y -itsscale <scale> -i <input> -c:v copy -c:a copy <output>
+        - Bơm rác (injected free atom box 10KB - 50KB) thay đổi toàn bộ hash/fingerprint số.
+        """
+        import random
+        import struct
+
+        if not os.path.exists(input_path):
+            logger.error(f"process_fps_compression: Input file not found: {input_path}")
+            return False
+
+        scale_map = {"60": "2", "120": "6", "240": "12"}
+        scale = scale_map.get(str(fps).strip(), "2")
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        temp_out = f"{output_path}.tmp_fps.mp4"
+
+        cmd = [
+            self.ffmpeg_path, "-y",
+            "-itsscale", scale,
+            "-i", input_path,
+            "-c:v", "copy",
+            "-c:a", "copy",
+            temp_out
+        ]
+        ok = self._run_ffmpeg(cmd)
+        if not ok or not os.path.exists(temp_out) or os.path.getsize(temp_out) < 1024:
+            if os.path.exists(temp_out):
+                try: os.remove(temp_out)
+                except Exception: pass
+            return False
+
+        # Bơm rác MP4 theo đúng chuẩn fps.py:L251-L262
+        try:
+            padding_data_size = random.randint(10240, 51200)
+            box_size = padding_data_size + 8
+            box_header = struct.pack(">I", box_size) + b"free"
+            box_payload = os.urandom(padding_data_size)
+            with open(temp_out, "ab") as f:
+                f.write(box_header + box_payload)
+            logger.info(f"   [+] Bơm thành công {box_size // 1024}KB rác vào file video.")
+        except Exception as ex:
+            logger.warning(f"   [-] Lỗi bơm rác: {ex}")
+
+        if os.path.exists(output_path):
+            try: os.remove(output_path)
+            except Exception: pass
+        shutil.move(temp_out, output_path)
+        return True
+
     def edit_video_for_tiktok(
         self,
         input_path: str,

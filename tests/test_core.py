@@ -487,21 +487,35 @@ class TestWebBridgeApi(unittest.TestCase):
             "proxy_region": "IP - US",
             "auto_upload_tiktok": False,
             "only_shorts": True,
-            "skip_horizontal": True
+            "skip_horizontal": True,
+            "scan_engine": "both",
+            "min_duration": 25
         }
         res = self.bridge.save_project_state(state)
         self.assertTrue(res)
         pstate = self.bridge.get_initial_state()
         self.assertTrue(pstate.get("only_shorts"))
         self.assertTrue(pstate.get("skip_horizontal"))
+        self.assertEqual(pstate.get("scan_engine"), "both")
+        self.assertEqual(pstate.get("min_duration"), 25)
 
     def test_is_shorts_and_is_horizontal(self):
         from src.services.youtube_downloader import YouTubeDownloader
         yd = YouTubeDownloader()
         # Direct shorts check
         self.assertTrue(yd.is_shorts("https://www.youtube.com/shorts/tQryjZKQmwc"))
+        # Duration <= 60 is recognized as shorts
+        self.assertTrue(yd.is_shorts("any_id_123", duration=45.0))
+        # Duration > 180 is not shorts
+        self.assertFalse(yd.is_shorts("any_id_123", duration=250.0))
         # Shorts should not be considered horizontal
         self.assertFalse(yd.is_horizontal("https://www.youtube.com/shorts/tQryjZKQmwc"))
+
+    def test_fps_compression_method(self):
+        from src.services.video_processor import VideoProcessor
+        vp = VideoProcessor()
+        # Non existent file returns False cleanly
+        self.assertFalse(vp.process_fps_compression("non_existent_file.mp4", "out.mp4", fps="60"))
 
 
 if __name__ == "__main__":

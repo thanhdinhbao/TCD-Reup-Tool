@@ -85,6 +85,8 @@ class ProjectManager:
             "auto_upload_tiktok": True,
             "only_shorts": True,
             "skip_horizontal": True,
+            "scan_engine": "both",
+            "min_duration": 20,
             "telegram_enabled": True,
             "schedule": [],
             "schedule_mode": "multi",
@@ -122,6 +124,8 @@ class ProjectManager:
                 "auto_upload_tiktok": True,
                 "only_shorts": True,
                 "skip_horizontal": True,
+                "scan_engine": "both",
+                "min_duration": 20,
                 "telegram_enabled": True,
                 "queue": []
             }

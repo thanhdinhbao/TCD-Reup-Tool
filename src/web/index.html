@@ -77,12 +77,25 @@
 
       <!-- Execution Action Bar -->
       <div class="channels-actions-bar">
-        <div class="action-group-left">
+        <div class="action-group-left" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           <button id="btn-start-automation" class="btn btn-emerald">▶ Bắt đầu</button>
           <button id="btn-stop-automation" class="btn btn-ruby" disabled>⏹ Dừng</button>
           <div class="threads-box">
             <span>Luồng:</span>
             <input type="number" id="input-threads" class="threads-input" value="500" min="1" max="1000">
+          </div>
+          <div class="threads-box" title="Chọn phương thức quét video YouTube">
+            <span>Quét:</span>
+            <select id="select-scan-engine" class="select-control" style="padding: 2px 8px; font-size: 11.5px;">
+              <option value="both">⚡ Kết hợp (RSS + API v3)</option>
+              <option value="rss">📡 Chỉ dùng Turbo RSS (0 Quota)</option>
+              <option value="api">🔑 Chỉ dùng YouTube API v3</option>
+            </select>
+          </div>
+          <div class="threads-box" title="Bỏ qua không tải các video có thời lượng ngắn dưới x giây">
+            <span>Không tải dưới:</span>
+            <input type="number" id="input-min-duration" class="threads-input" value="20" min="0" max="600" style="width: 46px;">
+            <span>giây</span>
           </div>
         </div>
 
@@ -394,7 +407,7 @@
           style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid var(--cyan); padding: 10px 14px; border-radius: 4px; font-size: 11.5px; line-height: 1.5; color: #cbd5e1;">
           <div>• <b>Gán Profile GPM:</b> Hệ thống đã nạp tất cả profiles từ GPMLogin. Bạn có thể chọn bất kỳ profile nào
             cho từng kênh YouTube (1 Profile GPM có thể gắn cho nhiều kênh).</div>
-          <div>• <b>Chất lượng tải:</b> <b>720p (siêu tốc, tối ưu Shorts)</b> hoặc <b>1080p (Full HD nét)</b>.</div>
+          <div>• <b>Chất lượng tải:</b> <b>720p (siêu tốc, tối ưu Shorts)</b>, <b>1080p (Full HD nét)</b>, hoặc <b>720p Nén FPS (chạy code nén & bơm rác theo file fps.py)</b>.</div>
           <div>• <b>Chế độ xử lý:</b> <b>Tải up luôn</b> (trực tiếp) hoặc <b>Edit đủ 1 phút 1 giây (≥61s) dùng
               FFmpeg</b> để đạt chuẩn quỹ sáng tạo TikTok Creator Rewards.</div>
         </div>
@@ -402,7 +415,7 @@
         <!-- Global controls bar -->
         <div
           style="display: flex; gap: 14px; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.6); padding: 10px 14px; border-radius: var(--radius-sm);">
-          <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
               <span>Timeout chờ đăng (s):</span>
               <input type="number" id="input-tiktok-upload-timeout" class="threads-input" value="30">
@@ -410,6 +423,13 @@
             <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
               <span>Delay video tiếp (s):</span>
               <input type="number" id="input-tiktok-next-delay" class="threads-input" value="180">
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+              <span>Mở GPM:</span>
+              <select id="select-gpm-open-mode" class="select-control">
+                <option value="on_new_video">⚡ Chỉ mở khi có video mới</option>
+                <option value="prewarm">🚀 Mở sẵn trước (Pre-warm)</option>
+              </select>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
               <span>Caption:</span>
