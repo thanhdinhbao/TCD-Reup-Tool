@@ -132,7 +132,8 @@ class GPMLocalAPIClient:
         "--remote-allow-origins=* "
         "--disable-background-timer-throttling "
         "--disable-backgrounding-occluded-windows "
-        "--disable-renderer-backgrounding"
+        "--disable-renderer-backgrounding "
+        "--mute-audio"
     )
 
     def start_profile(
@@ -162,7 +163,9 @@ class GPMLocalAPIClient:
         if skip_proxy_check:
             params["skip_proxy_check"] = "true"
         if addition_args:
-            params["addition_args"] = addition_args.strip()
+            if isinstance(addition_args, (list, tuple)):
+                addition_args = " ".join(addition_args)
+            params["addition_args"] = str(addition_args).strip()
         if window_scale is not None:
             params["window_scale"] = str(window_scale)
         if window_pos:

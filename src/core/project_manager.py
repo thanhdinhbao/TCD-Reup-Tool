@@ -138,6 +138,18 @@ class ProjectManager:
             logger.error(f"Error loading project {target}: {e}")
             return {}
 
+    def get_all_projects_details(self) -> List[Dict[str, Any]]:
+        """Return list of all projects with channel counts and basic metadata."""
+        results = []
+        for p_name in self.list_projects():
+            pdata = self.load_project(p_name)
+            results.append({
+                "name": p_name,
+                "channel_count": len(pdata.get("channels", [])),
+                "is_active": p_name == self.active_project
+            })
+        return results
+
     def save_project(self, name: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> bool:
         """Save project state."""
         target = name or self.active_project
@@ -178,6 +190,137 @@ class ProjectManager:
             self._save_active_config()
             return True
         return False
+
+    def get_global_tiktok_config(self) -> Dict[str, Any]:
+        """
+        Lấy cấu hình TikTok Upload toàn cục (áp dụng chung cho tất cả các dự án).
+        Mỗi Dự Án gắn liền với 1 Profile GPM. Tất cả các kênh trong 1 dự án ăn theo Profile GPM của dự án đó.
+        """
+        global_file = os.path.join(self.config_dir, "tiktok_global_config.json")
+        default_cfg = {
+            "upload_timeout": 30,
+            "next_video_delay": 180,
+            "gpm_open_mode": "on_new_video",
+            "caption_mode": "keep_title",
+            "project_configs": {}
+        }
+
+        # Nếu file toàn cục đã tồn tại, đọc file
+        if os.path.exists(global_file):
+            try:
+                with open(global_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        # Đảm bảo đủ các trường cơ bản
+                        for k, v in default_cfg.items():
+                            if k not in data:
+                                data[k] = v
+                        # Đảm bảo tất cả các dự án hiện có đều có mục cấu hình
+                        p_configs = data.setdefault("project_configs", {})
+                        for p_name in self.list_projects():
+                            if p_name not in p_configs:
+                                p_data = self.load_project(p_name)
+                                p_tt = p_data.get("tiktok_config", {})
+                                p_ch_cfg = p_tt.get("channels_config", {})
+                                first_ch_cfg = next(iter(p_ch_cfg.values())) if p_ch_cfg else {}
+                                p_configs[p_name] = {
+                                    "profile_id": first_ch_cfg.get("profile_id", ""),
+                                    "profile_name": first_ch_cfg.get("profile_name", ""),
+                                    "quality": first_ch_cfg.get("quality", "720_fps"),
+                                    "fps": first_ch_cfg.get("fps", "120"),
+                                    "process_mode": first_ch_cfg.get("process_mode", "direct")
+                                }
+                        return data
+            except Exception as e:
+                logger.error(f"Error loading global tiktok config: {e}")
+
+        # Khởi tạo lần đầu từ dữ liệu các dự án hiện có
+        all_projs = self.list_projects()
+        p_configs = {}
+        timeout_val = 30
+        delay_val = 180
+        gpm_mode = "on_new_video"
+        caption_m = "keep_title"
+
+        for p_name in all_projs:
+            p_data = self.load_project(p_name)
+            p_tt = p_data.get("tiktok_config", {})
+            if "upload_timeout" in p_tt:
+                timeout_val = p_tt.get("upload_timeout", 30)
+            if "next_video_delay" in p_tt:
+                delay_val = p_tt.get("next_video_delay", 180)
+            if "gpm_open_mode" in p_tt:
+                gpm_mode = p_tt.get("gpm_open_mode", "on_new_video")
+            if "caption_mode" in p_tt:
+                caption_m = p_tt.get("caption_mode", "keep_title")
+
+            p_ch_cfg = p_tt.get("channels_config", {})
+            first_ch_cfg = next(iter(p_ch_cfg.values())) if p_ch_cfg else {}
+            pid = first_ch_cfg.get("profile_id", "")
+            if not pid and p_tt.get("profiles"):
+                pid = p_tt["profiles"][0].get("profile_id", "")
+
+            p_configs[p_name] = {
+                "profile_id": pid,
+                "profile_name": first_ch_cfg.get("profile_name", ""),
+                "quality": first_ch_cfg.get("quality", "720_fps"),
+                "fps": first_ch_cfg.get("fps", "120"),
+                "process_mode": first_ch_cfg.get("process_mode", "direct")
+            }
+
+        init_cfg = {
+            "upload_timeout": timeout_val,
+            "next_video_delay": delay_val,
+            "gpm_open_mode": gpm_mode,
+            "caption_mode": caption_m,
+            "project_configs": p_configs
+        }
+        try:
+            with open(global_file, "w", encoding="utf-8") as f:
+                json.dump(init_cfg, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error saving initial global tiktok config: {e}")
+
+        return init_cfg
+
+    def save_global_tiktok_config(self, config: Dict[str, Any]) -> bool:
+        """
+        Lưu cấu hình TikTok toàn cục và tự động đồng bộ sang tất cả các file dự án.
+        Mỗi kênh YouTube trong từng dự án sẽ tự động ăn theo Profile GPM của dự án đó.
+        """
+        global_file = os.path.join(self.config_dir, "tiktok_global_config.json")
+        try:
+            with open(global_file, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=4, ensure_ascii=False)
+
+            # Đồng bộ cấu hình sang từng file dự án để đảm bảo tương thích ngược
+            p_configs = config.get("project_configs", {})
+            for p_name in self.list_projects():
+                p_data = self.load_project(p_name)
+                p_cfg = p_configs.get(p_name, {})
+                tt_sub = p_data.setdefault("tiktok_config", {})
+
+                tt_sub["upload_timeout"] = config.get("upload_timeout", 30)
+                tt_sub["next_video_delay"] = config.get("next_video_delay", 180)
+                tt_sub["gpm_open_mode"] = config.get("gpm_open_mode", "on_new_video")
+                tt_sub["caption_mode"] = config.get("caption_mode", "keep_title")
+
+                # Cập nhật channels_config: mọi kênh của dự án đều gán theo profile của dự án
+                channels_map = {}
+                for ch in p_data.get("channels", []):
+                    channels_map[ch] = {
+                        "profile_id": p_cfg.get("profile_id", ""),
+                        "quality": p_cfg.get("quality", "720"),
+                        "fps": p_cfg.get("fps", "60"),
+                        "process_mode": p_cfg.get("process_mode", "extend_61s")
+                    }
+                tt_sub["channels_config"] = channels_map
+                self.save_project(p_name, p_data)
+
+            return True
+        except Exception as e:
+            logger.error(f"Error saving global tiktok config: {e}")
+            return False
 
     def get_tiktok_config(self, project_name: Optional[str] = None) -> Dict[str, Any]:
         """Get TikTok upload configuration for the given or active project."""

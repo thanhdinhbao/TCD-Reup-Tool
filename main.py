@@ -67,7 +67,7 @@ def main():
     )
 
     bridge.set_window(window)
-    logger.info("Starting pywebview with modern Cyber-Dark HTML5/CSS3 frontend...")
+    logger.info("Starting application...")
     webview.start(debug=False)
 
 

@@ -163,8 +163,45 @@ class WebBridgeApi:
             "schedule": pdata.get("schedule", []),
             "schedule_mode": pdata.get("schedule_mode", "multi"),
             "tiktok_config": self._project_manager.get_tiktok_config(active_proj),
+            "global_tiktok_config": self._project_manager.get_global_tiktok_config(),
+            "all_projects_details": self.get_all_projects_details(),
             "gpm_profiles": self._get_all_gpm_profiles()
         }
+
+    def get_all_projects_details(self) -> List[Dict[str, Any]]:
+        """Lấy danh sách chi tiết các dự án kèm số lượng kênh và profile GPM đã gán."""
+        global_cfg = self._project_manager.get_global_tiktok_config()
+        p_configs = global_cfg.get("project_configs", {})
+        results = []
+        for p_name in self._project_manager.list_projects():
+            p_data = self._project_manager.load_project(p_name)
+            chans = p_data.get("channels", [])
+            p_cfg = p_configs.get(p_name, {})
+            results.append({
+                "name": p_name,
+                "channel_count": len(chans),
+                "channels_count": len(chans),
+                "channels": chans,
+                "is_active": p_name == self._project_manager.active_project,
+                "profile_id": p_cfg.get("profile_id", ""),
+                "profile_name": p_cfg.get("profile_name", ""),
+                "quality": p_cfg.get("quality", "720_fps"),
+                "fps": p_cfg.get("fps", "120"),
+                "process_mode": p_cfg.get("process_mode", "direct")
+            })
+        return results
+
+    def get_global_tiktok_config(self) -> Dict[str, Any]:
+        """Lấy cấu hình TikTok toàn cục (1 dự án = 1 profile GPM)."""
+        return self._project_manager.get_global_tiktok_config()
+
+    def save_global_tiktok_config(self, config: Dict[str, Any]) -> bool:
+        """Lưu cấu hình TikTok toàn cục và đồng bộ tới toàn bộ dự án."""
+        res = self._project_manager.save_global_tiktok_config(config)
+        if res:
+            p_cnt = len(config.get("project_configs", {}))
+            self.emit_log(f"💾 Đã lưu cấu hình TikTok Upload chung cho tất cả {p_cnt} dự án (1 Dự Án = 1 Profile GPM).")
+        return res
 
     # ==========================================
     # PROJECT MANAGEMENT
@@ -396,21 +433,47 @@ class WebBridgeApi:
     # AUTOMATION WORKER ENGINE
     # ==========================================
 
-    def start_automation(self) -> Dict[str, Any]:
+    def start_automation(self, project_name: str = None) -> Dict[str, Any]:
         if self._is_worker_running:
             return {"success": False, "message": "Hệ thống đang chạy!"}
 
-        proj = self._project_manager.active_project
+        proj = project_name or self._project_manager.active_project
         pdata = self._project_manager.load_project(proj)
         channels = pdata.get("channels", [])
         if not channels:
-            return {"success": False, "message": "Dự án chưa có kênh YouTube nào!"}
+            return {"success": False, "message": f"Dự án '{proj}' chưa có kênh YouTube nào!"}
 
         self._is_worker_running = True
-        self._worker_thread = threading.Thread(target=self._run_automation_loop, args=(channels, pdata), daemon=True)
+        self._worker_thread = threading.Thread(target=self._run_automation_loop, args=([proj],), daemon=True)
         self._worker_thread.start()
 
-        self.emit_log("▶ Bắt đầu khởi chạy Worker tự động hóa nền...")
+        self.emit_log(f"▶ Bắt đầu khởi chạy Worker tự động hóa nền cho dự án '{proj}' ({len(channels)} kênh)...")
+        self._eval_js("window.onAutomationStateChange(true)")
+        return {"success": True}
+
+    def start_all_projects(self) -> Dict[str, Any]:
+        if self._is_worker_running:
+            return {"success": False, "message": "Hệ thống đang chạy!"}
+
+        all_projects = self._project_manager.list_projects()
+        valid_projects = []
+        total_channels = 0
+
+        for p_name in all_projects:
+            pdata = self._project_manager.load_project(p_name)
+            ch_list = pdata.get("channels", [])
+            if ch_list:
+                valid_projects.append(p_name)
+                total_channels += len(ch_list)
+
+        if not valid_projects:
+            return {"success": False, "message": "Không có dự án nào có kênh YouTube để chạy!"}
+
+        self._is_worker_running = True
+        self._worker_thread = threading.Thread(target=self._run_automation_loop, args=(valid_projects,), daemon=True)
+        self._worker_thread.start()
+
+        self.emit_log(f"⚡ Khởi chạy tự động hóa đồng thời cho TẤT CẢ {len(valid_projects)} dự án ({', '.join(valid_projects)}) - Tổng {total_channels} kênh!")
         self._eval_js("window.onAutomationStateChange(true)")
         return {"success": True}
 
@@ -450,7 +513,7 @@ class WebBridgeApi:
         self.emit_log("🧹 Đã làm mới danh sách video đã đăng.")
         return {"success": True}
 
-    def _run_automation_loop(self, channels: List[str], pdata: Dict[str, Any]):
+    def _run_automation_loop(self, target_projects: Any, legacy_pdata: Dict[str, Any] = None):
         downloads_dir = os.path.join(self._base_path, "downloads")
         output_dir = os.path.join(self._base_path, "output")
         os.makedirs(downloads_dir, exist_ok=True)
@@ -459,20 +522,21 @@ class WebBridgeApi:
         downloader = YouTubeDownloader(DownloadConfig(output_dir=downloads_dir))
         processor = VideoProcessor(VideoProcessConfig(output_folder=output_dir))
         uploader = TikTokUploader()
-        schedules = pdata.get("schedule", [])
-        tt_cfg = self._project_manager.get_tiktok_config()
-        ch_settings = tt_cfg.get("channels_config", {})
-
-        # Check initial schedule status
-        if schedules:
-            init_status = YouTubeScheduleAnalyzer.get_schedule_status(schedules, prewarm_mins=10)
-            slots_str = ", ".join(f"{s['start']}-{s['end']}" for s in schedules)
-            self.emit_log(f"⏰ Đã nạp lịch đăng: {slots_str} | Trạng thái hiện tại: {init_status['description']}")
-
-        total = len(channels)
         yt_api = YouTubeAPIClient()
-        proj = self._project_manager.active_project
-        auto_post_flag = pdata.get("auto_upload_tiktok", True)
+
+        # Chuẩn hóa target_projects (danh sách tên dự án)
+        if isinstance(target_projects, list) and len(target_projects) > 0:
+            if isinstance(target_projects[0], str) and ("://" in target_projects[0] or "youtube.com" in target_projects[0]):
+                # Trường hợp legacy truyền thẳng list channels
+                proj_names = [self._project_manager.active_project]
+            else:
+                proj_names = target_projects
+        elif isinstance(target_projects, str):
+            proj_names = [target_projects]
+        else:
+            proj_names = [self._project_manager.active_project]
+
+        is_multi = len(proj_names) > 1
         processed_videos = self._load_processed_videos()
         worker_start_time = datetime.now(timezone.utc)
         self.emit_log(f"🚀 [Bật tool] Mốc thời gian kích hoạt: {worker_start_time.strftime('%H:%M:%S UTC')}. Tool CHỈ tải & up video MỚI xuất bản từ thời điểm này trở đi!")
@@ -481,41 +545,70 @@ class WebBridgeApi:
 
         # VÒNG LẶP QUÉT LIÊN TỤC KHÔNG NGHỈ (Chỉ dừng khi người dùng bấm nút Dừng)
         while self._is_worker_running:
-            # Nạp lại cấu hình dự án để bắt kịp các tùy chọn bật/tắt động của người dùng
-            curr_pdata = self._project_manager.load_project(proj)
-            auto_post_flag = curr_pdata.get("auto_upload_tiktok", True)
-            proj_only_shorts = curr_pdata.get("only_shorts", True)
-            proj_skip_horizontal = curr_pdata.get("skip_horizontal", True)
-            proj_scan_engine = curr_pdata.get("scan_engine", "both")
-            proj_min_duration = int(curr_pdata.get("min_duration", 20))
-            gpm_open_mode = tt_cfg.get("gpm_open_mode", "on_new_video")
+            # 1. Nạp cấu hình TikTok toàn cục (1 Dự Án = 1 Profile GPM)
+            global_tt_cfg = self._project_manager.get_global_tiktok_config()
+            proj_gpm_configs = global_tt_cfg.get("project_configs", {})
+            gpm_open_mode = global_tt_cfg.get("gpm_open_mode", "on_new_video")
 
-            # 1. KIỂM TRA LỊCH ĐĂNG (Tối ưu RAM/CPU & Tự động mở GPM trước giờ đăng)
-            sched_status = YouTubeScheduleAnalyzer.get_schedule_status(schedules, prewarm_mins=10)
+            # 2. Tập hợp danh sách các kênh từ các dự án mục tiêu
+            channel_tasks = []
+            max_threads_global = 10
 
-            def resolve_target_pid():
-                for c_url in channels:
-                    cfg = ch_settings.get(c_url, {})
-                    pid = cfg.get("profile_id", "")
-                    if pid:
-                        return pid
-                for prof in tt_cfg.get("profiles", []):
-                    pid = prof.get("profile_id", "")
-                    if pid:
-                        return pid
-                return None
+            for p_name in proj_names:
+                try:
+                    pdata = self._project_manager.load_project(p_name)
+                except Exception:
+                    continue
 
-            if sched_status["status"] == "OUTSIDE":
-                # Ngoài khung giờ: Tự động đóng GPM Profile để giải phóng RAM & CPU
-                if uploader._cached_driver or uploader._cached_profile_id:
-                    self.emit_log(f"⏰ [Hết khung giờ] {sched_status['description']}")
-                    uploader.close_browser(self._gpm_client)
-                    self.emit_log("💤 Đã đóng GPM Profile để tiết kiệm tài nguyên hệ thống.")
-                else:
-                    if cycle % 6 == 0:
-                        self.emit_log(f"💤 [Chờ lịch] {sched_status['description']}")
+                p_channels = pdata.get("channels", [])
+                p_threads = int(pdata.get("threads", 10))
+                if p_threads > max_threads_global:
+                    max_threads_global = p_threads
 
-                # Tạm nghỉ 5s rồi kiểm tra lại đồng hồ (ngắt ngay khi user bấm Dừng)
+                p_only_shorts = pdata.get("only_shorts", True)
+                p_skip_horizontal = pdata.get("skip_horizontal", True)
+                p_scan_engine = pdata.get("scan_engine", "both")
+                p_min_duration = int(pdata.get("min_duration", 20))
+                p_auto_upload = pdata.get("auto_upload_tiktok", True)
+                p_schedules = pdata.get("schedule", [])
+
+                # Lấy cấu hình GPM của dự án này (1 dự án ăn theo 1 profile GPM)
+                p_gpm = proj_gpm_configs.get(p_name, {})
+                if not p_gpm:
+                    # Fallback lấy cấu hình cũ nếu chưa lưu global
+                    old_tt = pdata.get("tiktok_config", {})
+                    old_ch = old_tt.get("channels_config", {})
+                    first_cfg = next(iter(old_ch.values()), {}) if old_ch else {}
+                    p_gpm = {
+                        "profile_id": first_cfg.get("profile_id", ""),
+                        "quality": first_cfg.get("quality", "720_fps"),
+                        "fps": first_cfg.get("fps", "120"),
+                        "process_mode": first_cfg.get("process_mode", "direct")
+                    }
+
+                # Kiểm tra lịch đăng riêng của từng dự án nếu có
+                if p_schedules:
+                    p_sched_status = YouTubeScheduleAnalyzer.get_schedule_status(p_schedules, prewarm_mins=10)
+                    if p_sched_status["status"] == "OUTSIDE":
+                        # Ngoài khung giờ của dự án này -> bỏ qua các kênh của dự án trong vòng quét này
+                        continue
+
+                for ch in p_channels:
+                    channel_tasks.append({
+                        "project": p_name,
+                        "channel_url": ch,
+                        "p_gpm": p_gpm,
+                        "only_shorts": p_only_shorts,
+                        "skip_horizontal": p_skip_horizontal,
+                        "scan_engine": p_scan_engine,
+                        "min_duration": p_min_duration,
+                        "auto_upload": p_auto_upload
+                    })
+
+            total_tasks = len(channel_tasks)
+            if total_tasks == 0:
+                if cycle % 6 == 0:
+                    self.emit_log(f"💤 [Chờ lịch / Không có kênh] Không có kênh nào cần quét tại thời điểm này. Đang nghỉ 5s...")
                 for _ in range(5):
                     if not self._is_worker_running:
                         break
@@ -523,30 +616,10 @@ class WebBridgeApi:
                 cycle += 1
                 continue
 
-            elif gpm_open_mode == "prewarm" and sched_status["status"] == "APPROACHING":
-                # Tới gần giờ đăng (<10 phút): Mở sẵn GPM Profile và chờ video (nếu bật chế độ prewarm)
-                target_pid = resolve_target_pid()
-                if target_pid and not uploader._cached_driver:
-                    self.emit_log(f"⏰ [Gần tới giờ đăng] {sched_status['description']}")
-                    self.emit_log(f"🚀 Đang mở sẵn GPM Profile [{target_pid[:8]}...] trên nền để chờ video mới...")
-                    uploader.prewarm_profile(target_pid, self._gpm_client)
-                    self.emit_log(f"✨ Profile GPM [{target_pid[:8]}...] đã sẵn sàng tại TikTok Studio (0s trễ)!")
-
-            elif gpm_open_mode == "prewarm" and sched_status["status"] in ("IN_WINDOW", "ALL_DAY"):
-                target_pid = resolve_target_pid()
-                if target_pid and not uploader._cached_driver and cycle == 0:
-                    self.emit_log(f"⏰ [Trong khung giờ đăng] {sched_status['description']}")
-                    uploader.prewarm_profile(target_pid, self._gpm_client)
-
             cycle += 1
             if cycle > 1:
-                self.emit_log(f"🔄 [Vòng quét #{cycle}] Quét liên tục không nghỉ tìm video mới trên {total} kênh...")
-
-            def handle_key_rotate(old_k, new_k):
-                self._api_pool.dead_keys.add(old_k)
-                self.emit_log(f"⚠ Quota limit trên key [{old_k[:8]}...], xoay sang key [{new_k[:8]}...]...")
-                dead_cnt = len(self._api_pool.dead_keys)
-                self._eval_js(f"document.getElementById('stat-key-dead').textContent = '({dead_cnt})'")
+                scope_label = f"TẤT CẢ {len(proj_names)} dự án" if is_multi else f"dự án '{proj_names[0]}'"
+                self.emit_log(f"🔄 [Vòng quét #{cycle}] Quét liên tục không nghỉ tìm video mới trên {total_tasks} kênh ({scope_label})...")
 
             def get_channel_assigned_keys(project: str, channel_url: str) -> List[str]:
                 proj_map = self._api_pool.channel_map.get(project, {})
@@ -558,14 +631,13 @@ class WebBridgeApi:
                         return v
                 return []
 
-            # Tối ưu 1: Quét song song đa kênh bằng ThreadPoolExecutor (Concurrent Multi-Channel Scanning)
-            # NGUYÊN TẮC: Mỗi kênh CHỈ dùng duy nhất các API keys được cấp phát riêng trong Quản lý Key!
-            # Xoay vòng Round-Robin bền vững qua từng vòng quét (Key 1 -> Key 2 -> ... -> Key N)
             if not hasattr(self, "_channel_key_managers"):
                 self._channel_key_managers = {}
 
-            def scan_channel_task(item):
-                c_idx, c_url = item
+            def scan_channel_worker(item_tuple):
+                c_idx, t_info = item_tuple
+                c_url = t_info["channel_url"]
+                proj = t_info["project"]
                 assigned_k = get_channel_assigned_keys(proj, c_url)
                 has_assigned_keys = bool(assigned_k)
 
@@ -592,19 +664,17 @@ class WebBridgeApi:
 
                 def channel_key_rotate(old_k, new_k):
                     self._api_pool.dead_keys.add(old_k)
-                    self.emit_log(f"⚠ [Kênh #{c_idx+1}] Quota limit trên key [{old_k[:8]}...], xoay sang key [{new_k[:8]}...] (Trong {len(assigned_k)} keys cấp riêng)...")
+                    proj_prefix = f"[{proj}] " if is_multi else ""
+                    self.emit_log(f"⚠ {proj_prefix}[Kênh #{c_idx+1}] Quota limit trên key [{old_k[:8]}...], xoay sang key [{new_k[:8]}...] (Trong {len(assigned_k)} keys cấp riêng)...")
                     dead_cnt = len(self._api_pool.dead_keys)
                     self._eval_js(f"document.getElementById('stat-key-dead').textContent = '({dead_cnt})'")
 
-                ch_cfg_early = ch_settings.get(c_url, {})
-                c_only_shorts = ch_cfg_early.get("only_shorts", proj_only_shorts)
-                tab_target = "shorts" if c_only_shorts else "videos"
-
+                tab_target = "shorts" if t_info["only_shorts"] else "videos"
                 t0_s = time.perf_counter()
                 vids = []
                 engine = "yt-dlp Siêu tốc"
 
-                scan_engine = proj_scan_engine
+                scan_engine = t_info["scan_engine"]
                 if scan_engine in ("rss", "ytdlp") or not has_assigned_keys:
                     engine = "yt-dlp Siêu tốc (0 Quota)" if has_assigned_keys else "yt-dlp Siêu tốc (0 Quota - Kênh chưa cấp API)"
                     vids = yt_api.get_channel_videos_ytdlp(c_url, limit=5, tab=tab_target)
@@ -627,49 +697,48 @@ class WebBridgeApi:
                     )
 
                 if not vids:
-                    vids = downloader.get_channel_videos(c_url, limit=5, only_shorts=c_only_shorts)
-                    engine = "yt-dlp Cào dự phòng (/shorts)" if c_only_shorts else "yt-dlp Cào dự phòng"
+                    vids = downloader.get_channel_videos(c_url, limit=5, only_shorts=t_info["only_shorts"])
+                    engine = "yt-dlp Cào dự phòng (/shorts)" if t_info["only_shorts"] else "yt-dlp Cào dự phòng"
 
                 t_dur = time.perf_counter() - t0_s
-                return (c_idx, c_url, vids, t_dur, engine, len(assigned_k))
+                return (c_idx, t_info, vids, t_dur, engine, len(assigned_k))
 
-            if total > 1:
-                self.emit_log(f"🚀 [Quét song song] Đang quét đồng thời {total} kênh qua đa luồng (Độc lập API riêng từng kênh)...")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=min(total, 6)) as scan_pool:
-                    scan_results = list(scan_pool.map(scan_channel_task, enumerate(channels)))
-            else:
-                scan_results = [scan_channel_task((0, channels[0]))]
+            # Quét song song tất cả các kênh bằng ThreadPoolExecutor
+            scan_workers = min(total_tasks, max(1, max_threads_global))
+            scope_prefix = f"từ {len(proj_names)} dự án " if is_multi else ""
+            self.emit_log(f"🚀 [Quét song song] Đang quét đồng thời {total_tasks} kênh {scope_prefix}qua {scan_workers} luồng (Độc lập API riêng từng kênh)...")
 
-            for idx, ch_url, videos, t_scan, used_engine, assigned_count in scan_results:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=scan_workers) as scan_pool:
+                scan_results = list(scan_pool.map(scan_channel_worker, enumerate(channel_tasks)))
+
+            for idx, t_info, videos, t_scan, used_engine, assigned_count in scan_results:
                 if not self._is_worker_running:
                     break
 
-                # Resolve per-channel settings
-                ch_cfg = ch_settings.get(ch_url, {})
-                target_pid = ch_cfg.get("profile_id", "")
-                quality = ch_cfg.get("quality", "720")
-                process_mode = ch_cfg.get("process_mode", "extend_61s")
-                ch_only_shorts = ch_cfg.get("only_shorts", proj_only_shorts)
-                ch_skip_horizontal = ch_cfg.get("skip_horizontal", proj_skip_horizontal)
+                ch_url = t_info["channel_url"]
+                proj = t_info["project"]
+                p_gpm = t_info["p_gpm"]
+                target_pid = p_gpm.get("profile_id", "")
+                quality = p_gpm.get("quality", "720_fps")
+                fps_val = p_gpm.get("fps", "120")
+                process_mode = p_gpm.get("process_mode", "direct")
+                ch_only_shorts = t_info["only_shorts"]
+                ch_skip_horizontal = t_info["skip_horizontal"]
+                p_min_duration = t_info["min_duration"]
+                auto_post_flag = t_info["auto_upload"]
 
-                if not target_pid:
-                    for prof in tt_cfg.get("profiles", []):
-                        if ch_url in prof.get("assigned_channels", []):
-                            target_pid = prof.get("profile_id", "")
-                            break
-
+                proj_badge = f"[{proj}] " if is_multi else ""
                 key_badge = f"[{assigned_count} API riêng]" if assigned_count > 0 else "[Chưa cấp API - Quét yt-dlp 0 Quota]"
+
                 if videos:
-                    self.emit_log(f"✅ [{idx+1}/{total}] [{used_engine}: {t_scan:.2f}s] {key_badge} Tìm thấy {len(videos)} video từ: {ch_url}!")
+                    self.emit_log(f"✅ {proj_badge}[{idx+1}/{total_tasks}] [{used_engine}: {t_scan:.2f}s] {key_badge} Tìm thấy {len(videos)} video từ: {ch_url}!")
                 else:
-                    self.emit_log(f"⚠️ Kênh '{ch_url}' {key_badge} hiện KHÔNG CÓ video công khai nào trên YouTube (0 video). Vui lòng thêm video lên kênh hoặc đổi kênh khác!")
+                    self.emit_log(f"⚠️ {proj_badge}Kênh '{ch_url}' hiện KHÔNG CÓ video công khai nào trên YouTube (0 video).")
                     continue
 
-                # Kiểm tra nếu là kênh theo dõi (không phải dán link 1 video đơn lẻ)
                 is_direct_video = bool(downloader._extract_single_video_id(ch_url))
 
-                # VÒNG QUÉT ĐẦU TIÊN (cycle == 1): Lập mốc Baseline Snapshot toàn bộ video cũ có sẵn trên kênh
-                # Tuyệt đối không tải lại video cũ đã có trước khi bật tool!
+                # VÒNG QUÉT ĐẦU TIÊN (cycle == 1): Lập mốc Snapshot toàn bộ video cũ có sẵn trên kênh
                 if cycle == 1 and not is_direct_video:
                     existing_ids = {v["id"] for v in videos if v.get("id")}
                     if existing_ids:
@@ -677,17 +746,16 @@ class WebBridgeApi:
                         if new_ids:
                             processed_videos.update(new_ids)
                             self._save_processed_videos(processed_videos)
-                    self.emit_log(f"🛡️ [{idx+1}/{total}] Kênh '{ch_url[:40]}...': Đã ghi nhận mốc {len(existing_ids)} video có sẵn trước khi bật tool. Tool đang trực chiến, CHỈ tải & up khi kênh đăng video MỚI!")
+                    self.emit_log(f"🛡️ {proj_badge}[{idx+1}/{total_tasks}] Kênh '{ch_url[:35]}...': Đã ghi nhận mốc {len(existing_ids)} video có sẵn. Tool CHỈ tải & up khi kênh có video MỚI!")
                     continue
 
-                # Lọc bỏ các video đã tải/đăng trước đó hoặc video cũ đăng trước thời điểm bật tool
+                # Lọc bỏ video đã xử lý hoặc video đăng trước thời điểm bật tool
                 processed_videos = self._load_processed_videos()
                 unprocessed_videos = []
                 for v in videos:
                     v_id = v.get("id")
                     if not v_id or v_id in processed_videos:
                         continue
-                    # Bỏ qua các video cũ xuất bản trước thời điểm bật tool (theo timestamp published_at / published)
                     if not is_direct_video:
                         pub_str = v.get("published_at") or v.get("published")
                         if pub_str:
@@ -701,38 +769,32 @@ class WebBridgeApi:
                     unprocessed_videos.append(v)
 
                 if not unprocessed_videos:
-                    if videos:
-                        self.emit_log(f"ℹ [{idx+1}/{total}] Kênh '{ch_url[:40]}...': Video mới nhất '{videos[0].get('title', '')[:30]}...' đã up trước đó (đã lưu lịch sử). Tiếp tục theo dõi...")
                     continue
 
-                # --- LỌC KIỂM TRA CHỈ TẢI SHORTS, BỎ QUA VIDEO NGANG & THỜI LƯỢNG TỐI THIỂU ---
+                # Lọc Shorts, video ngang, thời lượng
                 valid_videos = []
                 for v in unprocessed_videos:
                     v_id = v.get("id")
                     title = v.get("title", f"Video {v_id}")
                     v_dur = v.get("duration", 0) or 0
 
-                    # 1. Kiểm tra thời lượng tối thiểu (min_duration) nếu đã biết
-                    if proj_min_duration > 0 and 0 < v_dur < proj_min_duration:
-                        self.emit_log(f"⏭ [{idx+1}/{total}] [Thời lượng <{proj_min_duration}s] Bỏ qua video '{title[:35]}...' ({v_id}) vì thời lượng {v_dur}s < {proj_min_duration}s tối thiểu!")
+                    if p_min_duration > 0 and 0 < v_dur < p_min_duration:
+                        self.emit_log(f"⏭ {proj_badge}[Thời lượng <{p_min_duration}s] Bỏ qua video '{title[:30]}...' ({v_id}) vì thời lượng {v_dur}s < {p_min_duration}s.")
                         processed_videos.add(v_id)
                         continue
 
-                    # 2. Chế độ "Chỉ Short"
                     if ch_only_shorts:
                         is_sh = downloader.is_shorts(v_id, duration=v_dur)
                         if not is_sh and ("#short" in title.lower() or "/shorts/" in v.get("url", "")):
                             is_sh = True
                         if not is_sh:
-                            self.emit_log(f"⏭ [{idx+1}/{total}] [Chỉ tải Shorts] Bỏ qua video thường '{title[:35]}...' ({v_id}). Không phải Shorts!")
+                            self.emit_log(f"⏭ {proj_badge}[Chỉ tải Shorts] Bỏ qua video '{title[:30]}...' ({v_id}) không phải Shorts.")
                             processed_videos.add(v_id)
                             continue
 
-                    # 3. Chế độ "Bỏ qua video ngang"
                     if ch_skip_horizontal:
-                        is_horiz = downloader.is_horizontal(v_id)
-                        if is_horiz:
-                            self.emit_log(f"⏭ [{idx+1}/{total}] [Bỏ qua video ngang] Bỏ qua video '{title[:35]}...' ({v_id}) vì có khung hình ngang (Landscape)!")
+                        if downloader.is_horizontal(v_id):
+                            self.emit_log(f"⏭ {proj_badge}[Bỏ qua video ngang] Bỏ qua video '{title[:30]}...' ({v_id}) có khung hình ngang.")
                             processed_videos.add(v_id)
                             continue
 
@@ -740,18 +802,17 @@ class WebBridgeApi:
 
                 self._save_processed_videos(processed_videos)
                 unprocessed_videos = valid_videos
-
                 if not unprocessed_videos:
                     continue
 
-                # Kích hoạt pre-warm GPM profile song song khi có video mới cần up (chỉ khi bật chế độ prewarm)
+                # Mở GPM Profile nếu prewarm
                 prewarm_thread = None
                 if gpm_open_mode == "prewarm" and target_pid and not (uploader._cached_driver and uploader._cached_profile_id == target_pid):
                     def prewarm_worker():
                         uploader.prewarm_profile(target_pid, self._gpm_client)
                     prewarm_thread = threading.Thread(target=prewarm_worker, daemon=True)
                     prewarm_thread.start()
-                    self.emit_log(f"🚀 [Pre-warm] Đang mở sẵn Profile GPM [{target_pid[:8]}...] trên nền để tải xong up ngay (0s trễ)...")
+                    self.emit_log(f"🚀 {proj_badge}[Pre-warm] Đang mở sẵn Profile GPM [{target_pid[:8]}...] trên nền...")
 
                 for v_idx, v in enumerate(unprocessed_videos):
                     if not self._is_worker_running:
@@ -761,13 +822,12 @@ class WebBridgeApi:
                     title = v.get("title", f"Video {v_id}")
                     v_url = v.get("url", f"https://www.youtube.com/watch?v={v_id}")
 
-                    # Đặt tên file theo Title để TikTok tự động điền Description chuẩn 100% (0s trễ), giữ nguyên tên gốc không gắn hậu tố
                     safe_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', title).strip()[:100]
                     file_stem = safe_title if safe_title else v_id
                     raw_path = os.path.join(downloads_dir, f"{file_stem}.mp4")
                     render_path = os.path.join(output_dir, f"{file_stem}.mp4")
 
-                    # Kích hoạt tải đón đầu ngầm video kế tiếp (nếu danh sách có nhiều video)
+                    # Tải đón đầu ngầm video kế tiếp
                     if v_idx + 1 < len(unprocessed_videos):
                         next_v = unprocessed_videos[v_idx + 1]
                         next_vid = next_v.get("id")
@@ -777,24 +837,24 @@ class WebBridgeApi:
                         next_file_stem = next_safe if next_safe else next_vid
                         next_raw = os.path.join(downloads_dir, f"{next_file_stem}.mp4")
                         if not os.path.exists(next_raw):
-                            dl_q = "720" if quality == "720_fps" else quality
+                            dl_q_next = "720" if quality == "720_fps" else quality
                             threading.Thread(
                                 target=downloader.download_video,
-                                args=(next_url, next_raw, dl_q),
+                                args=(next_url, next_raw, dl_q_next),
                                 daemon=True
                             ).start()
 
-                    # 2. Bấm giờ tải video YouTube (Kiểm tra nếu file đã được tải ngầm đón đầu)
+                    # Bấm giờ tải
                     dl_q = "720" if quality == "720_fps" else quality
                     if os.path.exists(raw_path) and os.path.getsize(raw_path) > 1024 * 1024:
-                        self.emit_log(f"⚡ [Tải đón đầu 0s] Video '{title}' ({v_id}) đã có sẵn trong bộ đệm (Tải: 0.00s)!")
+                        self.emit_log(f"⚡ {proj_badge}[Tải đón đầu 0s] Video '{title}' ({v_id}) đã có sẵn trong bộ đệm!")
                         self.emit_queue_item(v_id, title, 50, "Đã có sẵn (0s)")
                         dl_ok = True
                         t_dl = 0.0
                     else:
-                        quality_label = f"720p (Nén FPS {ch_cfg.get('fps', '60')})" if quality == "720_fps" else f"{quality}p"
+                        quality_label = f"720p (Nén FPS {fps_val})" if quality == "720_fps" else f"{quality}p"
                         self.emit_queue_item(v_id, title, 20, f"Đang tải {quality_label}...")
-                        self.emit_log(f"⚡ Đang tải siêu tốc video {quality_label} (32 luồng kết nối song song): {title} ({v_id})...")
+                        self.emit_log(f"⚡ {proj_badge}Đang tải siêu tốc video {quality_label} (32 luồng): {title} ({v_id})...")
                         t0_dl = time.perf_counter()
                         dl_ok = downloader.download_video(v_url, raw_path, quality=dl_q)
                         t_dl = time.perf_counter() - t0_dl
@@ -803,12 +863,12 @@ class WebBridgeApi:
                         self.emit_queue_item(v_id, title, 0, "Lỗi tải")
                         continue
 
-                    # Kiểm tra thời lượng thực tế sau tải nếu cấu hình min_duration
-                    if proj_min_duration > 0:
+                    # Thời lượng thực tế sau tải
+                    if p_min_duration > 0:
                         actual_dur = processor.get_video_duration(raw_path)
-                        if 0 < actual_dur < proj_min_duration:
-                            self.emit_log(f"⏭ [{idx+1}/{total}] [Thời lượng <{proj_min_duration}s] File '{title[:35]}...' ({v_id}) sau tải dài {actual_dur:.1f}s < {proj_min_duration}s tối thiểu. Bỏ qua!")
-                            self.emit_queue_item(v_id, title, 0, f"Bỏ qua (<{proj_min_duration}s)")
+                        if 0 < actual_dur < p_min_duration:
+                            self.emit_log(f"⏭ {proj_badge}[Thời lượng <{p_min_duration}s] Video '{title[:30]}...' sau tải dài {actual_dur:.1f}s < {p_min_duration}s tối thiểu. Bỏ qua!")
+                            self.emit_queue_item(v_id, title, 0, f"Bỏ qua (<{p_min_duration}s)")
                             if os.path.exists(raw_path):
                                 try: os.remove(raw_path)
                                 except Exception: pass
@@ -816,15 +876,13 @@ class WebBridgeApi:
                             self._save_processed_videos(processed_videos)
                             continue
 
-                    # Xác minh an toàn sau tải: nếu bật "Bỏ qua video ngang", kiểm tra kích thước file thực tế bằng ffprobe
+                    # Video ngang sau tải
                     if ch_skip_horizontal and processor.is_horizontal_video(raw_path):
-                        self.emit_log(f"⏭ [{idx+1}/{total}] [Bỏ qua video ngang] File '{title[:35]}...' ({v_id}) sau tải phát hiện kích thước khung hình ngang (Landscape). Bỏ qua!")
+                        self.emit_log(f"⏭ {proj_badge}[Bỏ qua video ngang] File '{title[:30]}...' sau tải phát hiện kích thước khung hình ngang. Bỏ qua!")
                         self.emit_queue_item(v_id, title, 0, "Bỏ qua (Video ngang)")
                         if os.path.exists(raw_path):
-                            try:
-                                os.remove(raw_path)
-                            except Exception:
-                                pass
+                            try: os.remove(raw_path)
+                            except Exception: pass
                         continue
 
                     video_to_upload = raw_path
@@ -832,7 +890,7 @@ class WebBridgeApi:
 
                     if process_mode == "extend_61s":
                         self.emit_queue_item(v_id, title, 50, "Edit 61s FFmpeg...")
-                        self.emit_log(f"✂ Đang edit video đủ 1 phút 1 giây (≥61s) bằng FFmpeg (Chất lượng {dl_q}p)...")
+                        self.emit_log(f"✂ {proj_badge}Đang edit video đủ 1 phút 1 giây (≥61s) bằng FFmpeg (Chất lượng {dl_q}p)...")
                         t0_proc = time.perf_counter()
                         proc_ok = processor.edit_video_for_tiktok(
                             input_path=raw_path,
@@ -841,21 +899,18 @@ class WebBridgeApi:
                             quality=dl_q
                         )
                         t_proc = time.perf_counter() - t0_proc
-
                         if not proc_ok:
                             self.emit_queue_item(v_id, title, 0, "Lỗi render")
                             continue
                         video_to_upload = render_path
                     else:
-                        # Chế độ Tải up luôn: Tải xong dùng ngay file gốc, KHÔNG GỌI FFMPEG (0s trễ)!
                         self.emit_queue_item(v_id, title, 70, "Up luôn trực tiếp (0s)...")
-                        self.emit_log(f"⚡ Chế độ Tải up luôn: Tải xong dùng luôn file gốc up thẳng lên TikTok (Không dùng FFmpeg, 0s trễ)!")
+                        self.emit_log(f"⚡ {proj_badge}Chế độ Tải up luôn: Tải xong dùng ngay file gốc up thẳng lên TikTok (0s trễ)!")
 
-                    # Nếu cấu hình chất lượng là "720 nén FPS": chạy nén FPS và bơm rác MP4 theo file fps.py
+                    # Nén FPS nếu chọn 720_fps
                     if quality == "720_fps":
-                        fps_val = ch_cfg.get("fps", "60")
                         self.emit_queue_item(v_id, title, 75, f"Nén FPS {fps_val}...")
-                        self.emit_log(f"🎞 Đang nén FPS ({fps_val} FPS) & bơm rác MP4 theo file fps.py: {title}...")
+                        self.emit_log(f"🎞 {proj_badge}Đang nén FPS ({fps_val} FPS) & bơm rác MP4 theo file fps.py: {title}...")
                         fps_render_path = os.path.join(output_dir, f"{file_stem}.mp4")
                         t0_fps = time.perf_counter()
                         fps_ok = processor.process_fps_compression(
@@ -865,24 +920,21 @@ class WebBridgeApi:
                         )
                         t_fps = time.perf_counter() - t0_fps
                         if fps_ok and os.path.exists(fps_render_path) and os.path.getsize(fps_render_path) > 1024:
-                            self.emit_log(f"✨ [Nén FPS hoàn tất: {t_fps:.2f}s] Đã nén FPS {fps_val} và thay đổi hash video thành công: {fps_render_path}")
+                            self.emit_log(f"✨ {proj_badge}[Nén FPS hoàn tất: {t_fps:.2f}s] Đã nén FPS {fps_val} thành công: {fps_render_path}")
                             video_to_upload = fps_render_path
                         else:
-                            self.emit_log(f"⚠ Nén FPS gặp sự cố, sử dụng video hiện tại để tải lên TikTok.")
+                            self.emit_log(f"⚠ {proj_badge}Nén FPS gặp sự cố, sử dụng video hiện tại để tải lên TikTok.")
 
-                    # Mở GPM: nếu chế độ on_new_video thì khởi động mở GPM và truy cập studio ngay khi video đã sẵn sàng
                     if gpm_open_mode == "on_new_video":
-                        self.emit_log(f"🚀 [Có video mới] Khởi động Profile GPM [{target_pid[:8] if target_pid else 'Chưa gán'}...] và điều hướng vào TikTok Studio...")
+                        self.emit_log(f"🚀 {proj_badge}[Có video mới] Khởi động Profile GPM [{target_pid[:8] if target_pid else 'Chưa gán'}...] của dự án '{proj}'...")
 
-                    # Đợi prewarm nếu chưa xong (nếu chế độ prewarm)
                     if prewarm_thread and prewarm_thread.is_alive():
-                        self.emit_log(f"⏳ Đang đợi Profile GPM [{target_pid[:8] if target_pid else ''}...] sẵn sàng trang upload...")
+                        self.emit_log(f"⏳ {proj_badge}Đang đợi Profile GPM [{target_pid[:8] if target_pid else ''}...] sẵn sàng trang upload...")
                         prewarm_thread.join(timeout=25)
 
                     self.emit_queue_item(v_id, title, 85, "Đang upload TikTok...")
-                    self.emit_log(f"🚀 Đang tải lên TikTok Studio (GPM Profile [{target_pid[:8] if target_pid else 'Chưa gán'}...])...")
+                    self.emit_log(f"🚀 {proj_badge}Đang tải lên TikTok Studio (GPM Profile [{target_pid[:8] if target_pid else 'Chưa gán'}...] - Dự án '{proj}')...")
 
-                    # 4. Bấm giờ upload TikTok Studio
                     t0_up = time.perf_counter()
                     up_ok, up_sec, up_msg = uploader.upload_video(
                         video_path=video_to_upload,
@@ -891,38 +943,33 @@ class WebBridgeApi:
                         profile_id=target_pid,
                         gpm_client=self._gpm_client
                     )
-                    # Tính thời gian up chuẩn xác từ uploader trả về (chốt ngay khi nhấn Post now xong)
                     t_up = up_sec if (up_sec and up_sec > 0) else (time.perf_counter() - t0_up)
-
                     t_total = t_scan + t_dl + t_proc + t_up
 
                     if up_ok:
                         self.emit_queue_item(v_id, title, 100, "Hoàn tất")
-                        ffmpeg_info = f"FFmpeg: {t_proc:.2f}s" if process_mode == "extend_61s" else "FFmpeg: 0s (Bỏ qua)"
+                        ffmpeg_info = f"FFmpeg: {t_proc:.2f}s" if process_mode == "extend_61s" else "FFmpeg: 0s"
                         gpm_stat = "0s mở sẵn" if gpm_open_mode == "prewarm" else "Đóng sau khi up"
-                        self.emit_log(f"✅ <b>Hoàn tất siêu tốc:</b> {title} | ⏱ <b>Tổng: {t_total:.2f}s</b> (Tải: {t_dl:.2f}s | {ffmpeg_info} | GPM: {gpm_stat} | Up: {t_up:.2f}s)")
+                        self.emit_log(f"✅ {proj_badge}<b>Hoàn tất siêu tốc:</b> {title} | ⏱ <b>Tổng: {t_total:.2f}s</b> (Tải: {t_dl:.2f}s | {ffmpeg_info} | GPM: {gpm_stat} | Up: {t_up:.2f}s)")
                         processed_videos.add(v_id)
                         self._save_processed_videos(processed_videos)
-                        self.emit_log(f"💾 Đã lưu ID [{v_id}] vào config/processed_videos.json (Chống đăng trùng).")
+
                         if gpm_open_mode == "on_new_video":
                             if v_idx == len(unprocessed_videos) - 1:
-                                self.emit_log(f"🔒 [Chế độ Mở khi có video mới] Đã đăng xong, đang đóng Profile GPM [{target_pid[:8] if target_pid else ''}...] để giải phóng RAM & CPU...")
+                                self.emit_log(f"🔒 {proj_badge}Đã đăng xong, đóng Profile GPM [{target_pid[:8] if target_pid else ''}...] để giải phóng RAM...")
                                 uploader.close_browser(self._gpm_client, profile_id=target_pid)
-                                self.emit_log(f"💤 Đã đóng Profile GPM [{target_pid[:8] if target_pid else ''}...] an toàn.")
-                        else:
-                            self.emit_log(f"🔄 [Chế độ Chờ sẵn] Profile GPM [{target_pid[:8] if target_pid else ''}...] được giữ mở và chuyển sẵn về trang Upload để đón video tiếp theo (0s trễ)!")
                     else:
                         self.emit_queue_item(v_id, title, 0, "Lỗi upload")
-                        self.emit_log(f"❌ <b>Upload TikTok thất bại:</b> {title} | Lỗi: {up_msg}")
+                        self.emit_log(f"❌ {proj_badge}<b>Upload TikTok thất bại:</b> {title} | Lỗi: {up_msg}")
                         upload_fail_counts[v_id] = upload_fail_counts.get(v_id, 0) + 1
                         if upload_fail_counts[v_id] >= 2:
-                            self.emit_log(f"⚠️ [Đã thử {upload_fail_counts[v_id]} lần thất bại] Bỏ qua video '{title[:35]}...' ({v_id}) để không lặp vô tận. Đã lưu lịch sử.")
+                            self.emit_log(f"⚠️ {proj_badge}[Đã thử {upload_fail_counts[v_id]} lần thất bại] Bỏ qua video '{title[:30]}...' ({v_id}).")
                             processed_videos.add(v_id)
                             self._save_processed_videos(processed_videos)
                         if gpm_open_mode == "on_new_video":
                             uploader.close_browser(self._gpm_client, profile_id=target_pid)
 
-                    # 5. Báo cáo chi tiết từng bước qua Telegram
+                    # Báo cáo Telegram
                     if self._telegram.enabled:
                         gpm_match = next((p for p in self._get_all_gpm_profiles() if p.get("id") == target_pid), None)
                         gpm_name = gpm_match.get("name") if gpm_match else (target_pid[:8] if target_pid else "Chưa gán")
@@ -930,38 +977,30 @@ class WebBridgeApi:
 
                         tele_report = (
                             f"🚀 <b>[TCD REUP TOOL] BÁO CÁO ĐĂNG VIDEO SIÊU TỐC!</b>\n\n"
+                            f"📁 <b>Dự án:</b> {proj}\n"
                             f"🎬 <b>Video:</b> {title}\n"
                             f"📺 <b>Kênh:</b> {ch_url}\n"
                             f"👤 <b>GPM Profile:</b> {gpm_name} ({target_pid[:8] if target_pid else 'N/A'})\n"
                             f"⚙ <b>Chế độ:</b> {quality}p | {mode_text}\n\n"
                             f"⏱ <b>BẢNG THỜI GIAN THỰC HIỆN:</b>\n"
-                            f"• 🔍 Quét API v3: <b>{t_scan:.2f}s</b>\n"
-                            f"• ⚡ Tải YouTube: <b>{t_dl:.2f}s</b> (Đa luồng tối đa)\n"
-                            f"• ✂ Xử lý FFmpeg: <b>{t_proc:.2f}s</b> {'(Bỏ qua - Up trực tiếp)' if process_mode == 'direct' else ''}\n"
-                            f"• 🚀 Mở GPM: <b>{'Đã mở sẵn (0s độ trễ)' if gpm_open_mode == 'prewarm' else 'Mở khi có video mới (Tự đóng sau khi up)'}</b>\n"
+                            f"• 🔍 Quét: <b>{t_scan:.2f}s</b>\n"
+                            f"• ⚡ Tải YouTube: <b>{t_dl:.2f}s</b> (32 luồng)\n"
+                            f"• ✂ Xử lý FFmpeg: <b>{t_proc:.2f}s</b>\n"
                             f"• 🎵 Upload TikTok: <b>{t_up:.2f}s</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━\n"
                             f"⚡ <b>TỔNG THỜI GIAN: {t_total:.2f}s</b> ⚡"
                         )
                         self._telegram.send_message(tele_report)
 
-                    # Giãn cách an toàn tối thiểu giữa các video nếu tải lên liên tiếp nhiều video
                     if self._is_worker_running and len(unprocessed_videos) > 1:
-                        post_delay = 5
-                        self.emit_log(f"⏳ Giãn cách an toàn {post_delay}s trước khi đăng video tiếp theo...")
-                        for _ in range(post_delay):
-                            if not self._is_worker_running:
-                                break
-                            time.sleep(1)
+                        time.sleep(5)
 
             if not self._is_worker_running:
                 break
 
-            # Quét liên tục không nghỉ: chuyển ngay sang vòng quét tiếp theo
-            self.emit_log(f"🔄 Hoàn tất vòng #{cycle}. Tiếp tục quét tìm video mới ngay lập tức (Chế độ quét liên tục không nghỉ)...")
+            self.emit_log(f"🔄 Hoàn tất vòng #{cycle}. Tiếp tục quét tìm video mới ngay lập tức...")
             time.sleep(1)
 
-        # Dọn dẹp tài nguyên khi dừng worker
         try:
             uploader.close_browser(self._gpm_client)
         except Exception:

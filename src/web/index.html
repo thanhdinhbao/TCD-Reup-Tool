@@ -78,8 +78,9 @@
       <!-- Execution Action Bar -->
       <div class="channels-actions-bar">
         <div class="action-group-left" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-          <button id="btn-start-automation" class="btn btn-emerald">▶ Bắt đầu</button>
-          <button id="btn-stop-automation" class="btn btn-ruby" disabled>⏹ Dừng</button>
+          <button id="btn-start-automation" class="btn btn-emerald" title="Chạy riêng dự án đang chọn trong dropdown">▶ Chạy dự án này</button>
+          <button id="btn-start-all-projects" class="btn btn-cyan" title="Chạy đồng thời tất cả các dự án cùng lúc" style="background: linear-gradient(135deg, #06b6d4, #2563eb); font-weight: 600; color: #fff;">⚡ Chạy tất cả dự án</button>
+          <button id="btn-stop-automation" class="btn btn-ruby" disabled title="Dừng toàn bộ hệ thống">⏹ Dừng tất cả</button>
           <div class="threads-box">
             <span>Luồng:</span>
             <input type="number" id="input-threads" class="threads-input" value="500" min="1" max="1000">
@@ -394,27 +395,25 @@
     </div>
   </div>
 
-  <!-- Modal 6: TikTok Upload Configuration (Redesigned with Full Profiles & Resolution / 61s Mode) -->
+  <!-- Modal 6: TikTok Upload Configuration (Global Per-Project & GPM Mapping) -->
   <div class="modal-overlay" id="modal-tiktok-config">
-    <div class="modal-window large" style="width: 1050px;">
+    <div class="modal-window large" style="width: 1080px;">
       <div class="modal-header">
-        <div class="modal-title">🎵 Cấu hình TikTok Upload — Gán Profile GPM & Chế Độ Tải/Edit Video</div>
+        <div class="modal-title">🎵 Cấu hình TikTok Upload Chung (1 Dự Án = 1 Profile GPM)</div>
         <button class="modal-close-btn">&times;</button>
       </div>
       <div class="modal-body">
         <!-- Guidelines banner -->
         <div
           style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid var(--cyan); padding: 10px 14px; border-radius: 4px; font-size: 11.5px; line-height: 1.5; color: #cbd5e1;">
-          <div>• <b>Gán Profile GPM:</b> Hệ thống đã nạp tất cả profiles từ GPMLogin. Bạn có thể chọn bất kỳ profile nào
-            cho từng kênh YouTube (1 Profile GPM có thể gắn cho nhiều kênh).</div>
-          <div>• <b>Chất lượng tải:</b> <b>720p (siêu tốc, tối ưu Shorts)</b>, <b>1080p (Full HD nét)</b>, hoặc <b>720p Nén FPS (chạy code nén & bơm rác theo file fps.py)</b>.</div>
-          <div>• <b>Chế độ xử lý:</b> <b>Tải up luôn</b> (trực tiếp) hoặc <b>Edit đủ 1 phút 1 giây (≥61s) dùng
-              FFmpeg</b> để đạt chuẩn quỹ sáng tạo TikTok Creator Rewards.</div>
+          <div>• <b>Cấu hình theo Dự Án:</b> Mỗi Dự Án gắn liền với 1 Profile GPM TikTok. <b>Tất cả các kênh YouTube trong 1 dự án sẽ tự động dùng chung Profile GPM của dự án đó!</b></div>
+          <div>• <b>Tự động nạp Profile:</b> Khi mở bảng này, hệ thống tự động quét và nạp toàn bộ Profile GPM từ GPMLogin (Port 9495) mà không cần nhấn nạp lại.</div>
+          <div>• <b>Tìm kiếm nhanh:</b> Sử dụng ô tìm kiếm để lọc nhanh Dự Án hoặc Profile GPM mong muốn.</div>
         </div>
 
         <!-- Global controls bar -->
         <div
-          style="display: flex; gap: 14px; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.6); padding: 10px 14px; border-radius: var(--radius-sm);">
+          style="display: flex; gap: 14px; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.6); padding: 10px 14px; border-radius: var(--radius-sm); margin-top: 10px;">
           <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
               <span>Timeout chờ đăng (s):</span>
@@ -440,28 +439,33 @@
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 10px;">
-            <span id="lbl-gpm-profiles-count" style="font-size: 11px; color: var(--emerald); font-weight: 600;">Đã nạp 0
-              profiles</span>
+            <span id="lbl-gpm-profiles-count" style="font-size: 11px; color: var(--emerald); font-weight: 600;">Đã nạp 0 profiles</span>
             <button id="btn-sync-gpm" class="btn btn-primary btn-sm">🔄 Quét lại GPM (Port 9495)</button>
           </div>
         </div>
 
-        <!-- Per-Channel Mapping Table -->
+        <!-- Quick Search Bar -->
+        <div style="margin: 10px 0; display: flex; gap: 10px; align-items: center;">
+          <input type="text" id="input-search-gpm-project" class="text-input" placeholder="🔍 Gõ tìm kiếm nhanh Profile GPM hoặc Tên Dự Án..." style="flex: 1; padding: 7px 12px; font-size: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: #f1f5f9;">
+          <span id="lbl-search-match-count" style="font-size: 11.5px; color: var(--cyan); white-space: nowrap;"></span>
+        </div>
+
+        <!-- Per-Project Mapping Table -->
         <div
-          style="border: 1px solid var(--border-color); border-radius: var(--radius-sm); max-height: 380px; overflow-y: auto; background: rgba(15, 23, 42, 0.5);">
-          <table class="cyber-table" id="table-tiktok-channel-settings">
+          style="border: 1px solid var(--border-color); border-radius: var(--radius-sm); min-height: 280px; max-height: 440px; overflow-y: auto; background: rgba(15, 23, 42, 0.5); padding-bottom: 80px;">
+          <table class="cyber-table" id="table-tiktok-project-settings">
             <thead>
               <tr>
-                <th style="width: 40px;">#</th>
-                <th>Kênh YouTube</th>
-                <th style="width: 250px;">GPM Profile TikTok (1-N)</th>
-                <th style="width: 150px;">Chất Lượng Tải</th>
-                <th style="width: 230px;">Chế Độ Xử Lý</th>
-                <th style="width: 140px; text-align: center;">Test GPM</th>
+                <th style="width: 40px; text-align: center;">#</th>
+                <th style="width: 220px;">Dự Án</th>
+                <th>GPM Profile TikTok (Tất cả kênh ăn theo 1 Profile này)</th>
+                <th style="width: 170px;">Chất Lượng Tải</th>
+                <th style="width: 220px;">Chế Độ Xử Lý</th>
+                <th style="width: 130px; text-align: center;">Test GPM</th>
               </tr>
             </thead>
-            <tbody id="tbody-tiktok-channels">
-              <!-- Dynamically rendered rows per channel -->
+            <tbody id="tbody-tiktok-projects">
+              <!-- Dynamically rendered rows per project -->
             </tbody>
           </table>
         </div>

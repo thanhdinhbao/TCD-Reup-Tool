@@ -7,7 +7,7 @@
     "use_proxy": false,
     "proxy_region": "IP - Nhật Bản",
     "auto_upload_tiktok": true,
-    "only_shorts": false,
+    "only_shorts": true,
     "telegram_enabled": true,
     "queue": [],
     "tiktok_config": {
@@ -25,11 +25,12 @@
             }
         ],
         "upload_timeout": 30,
-        "next_video_delay": 3,
+        "next_video_delay": 180,
         "channels_config": {
             "https://www.youtube.com/channel/UCW09iZOm1xBkTjoQGVkn0sA": {
                 "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
-                "quality": "720",
+                "quality": "720_fps",
+                "fps": "120",
                 "process_mode": "direct"
             }
         },

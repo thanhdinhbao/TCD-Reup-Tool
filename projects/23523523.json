@@ -41,7 +41,7 @@
             "https://youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg": {
                 "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
                 "quality": "720_fps",
-                "fps": "240",
+                "fps": "120",
                 "process_mode": "direct"
             }
         }

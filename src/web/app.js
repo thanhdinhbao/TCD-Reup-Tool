@@ -139,15 +139,22 @@ function renderChannelsTable() {
     return;
   }
 
+  const globalCfg = appState.global_tiktok_config || {};
+  const projConfigs = globalCfg.project_configs || {};
+  const pGpm = projConfigs[appState.active_project] || {};
   const chSettings = (appState.tiktok_config && appState.tiktok_config.channels_config) || {};
   const gpmList = appState.gpm_profiles || [];
+
+  const defaultPid = pGpm.profile_id || '';
+  const defaultQuality = pGpm.quality || '720_fps';
+  const defaultMode = pGpm.process_mode || 'direct';
 
   channels.forEach((ch, idx) => {
     const tr = document.createElement('tr');
     const cfg = chSettings[ch] || {};
-    const pid = cfg.profile_id;
-    const quality = cfg.quality || '720';
-    const mode = cfg.process_mode || 'extend_61s';
+    const pid = defaultPid || cfg.profile_id || '';
+    const quality = defaultPid ? defaultQuality : (cfg.quality || '720_fps');
+    const mode = defaultPid ? defaultMode : (cfg.process_mode || 'direct');
 
     let gpmName = '<span style="color: var(--amber);">Chưa gán GPM</span>';
     if (pid) {
@@ -239,32 +246,55 @@ function setupUIEventListeners() {
 
   // Automation Start / Stop
   const btnStart = document.getElementById('btn-start-automation');
+  const btnStartAll = document.getElementById('btn-start-all-projects');
   const btnStop = document.getElementById('btn-stop-automation');
 
-  btnStart.addEventListener('click', async () => {
-    if (appState.channels.length === 0) {
-      alert('Vui lòng thêm ít nhất một kênh YouTube trước khi bắt đầu!');
-      return;
-    }
-    await saveCurrentProjectState();
-    try {
-      const res = await window.pywebview.api.start_automation();
-      if (res.success) {
-        setAutomationRunning(true);
+  if (btnStart) {
+    btnStart.addEventListener('click', async () => {
+      if (appState.channels.length === 0) {
+        alert('Vui lòng thêm ít nhất một kênh YouTube trước khi bắt đầu!');
+        return;
       }
-    } catch (err) {
-      appendLog(`❌ Không thể khởi động automation: ${err.message || err}`, 'error');
-    }
-  });
+      await saveCurrentProjectState();
+      try {
+        const res = await window.pywebview.api.start_automation();
+        if (res.success) {
+          setAutomationRunning(true);
+        } else {
+          alert(res.message || 'Không thể khởi động!');
+        }
+      } catch (err) {
+        appendLog(`❌ Không thể khởi động automation: ${err.message || err}`, 'error');
+      }
+    });
+  }
 
-  btnStop.addEventListener('click', async () => {
-    try {
-      await window.pywebview.api.stop_automation();
-      setAutomationRunning(false);
-    } catch (err) {
-      appendLog(`❌ Không thể dừng automation: ${err.message || err}`, 'error');
-    }
-  });
+  if (btnStartAll) {
+    btnStartAll.addEventListener('click', async () => {
+      await saveCurrentProjectState();
+      try {
+        const res = await window.pywebview.api.start_all_projects();
+        if (res.success) {
+          setAutomationRunning(true);
+        } else {
+          alert(res.message || 'Không thể khởi động chạy tất cả dự án!');
+        }
+      } catch (err) {
+        appendLog(`❌ Lỗi khởi động chạy tất cả dự án: ${err.message || err}`, 'error');
+      }
+    });
+  }
+
+  if (btnStop) {
+    btnStop.addEventListener('click', async () => {
+      try {
+        await window.pywebview.api.stop_automation();
+        setAutomationRunning(false);
+      } catch (err) {
+        appendLog(`❌ Không thể dừng automation: ${err.message || err}`, 'error');
+      }
+    });
+  }
 
   // Setting toggles change -> auto save
   ['input-threads', 'chk-auto-upload-tiktok', 'chk-only-shorts', 'chk-skip-horizontal', 'select-scan-engine', 'input-min-duration'].forEach(id => {
@@ -303,14 +333,34 @@ function setupUIEventListeners() {
 
 function setAutomationRunning(running) {
   appState.is_running = running;
-  document.getElementById('btn-start-automation').disabled = running;
-  document.getElementById('btn-stop-automation').disabled = !running;
-  if (running) {
-    document.getElementById('btn-start-automation').classList.remove('btn-emerald');
-    document.getElementById('btn-start-automation').classList.add('btn-secondary');
-  } else {
-    document.getElementById('btn-start-automation').classList.add('btn-emerald');
-    document.getElementById('btn-start-automation').classList.remove('btn-secondary');
+  const btnStart = document.getElementById('btn-start-automation');
+  const btnStartAll = document.getElementById('btn-start-all-projects');
+  const btnStop = document.getElementById('btn-stop-automation');
+
+  if (btnStart) {
+    btnStart.disabled = running;
+    if (running) {
+      btnStart.classList.remove('btn-emerald');
+      btnStart.classList.add('btn-secondary');
+    } else {
+      btnStart.classList.add('btn-emerald');
+      btnStart.classList.remove('btn-secondary');
+    }
+  }
+
+  if (btnStartAll) {
+    btnStartAll.disabled = running;
+    if (running) {
+      btnStartAll.classList.remove('btn-primary');
+      btnStartAll.classList.add('btn-secondary');
+    } else {
+      btnStartAll.classList.add('btn-primary');
+      btnStartAll.classList.remove('btn-secondary');
+    }
+  }
+
+  if (btnStop) {
+    btnStop.disabled = !running;
   }
 }
 
@@ -485,35 +535,72 @@ function setupModalHandlers() {
     await refreshApiPoolData();
   });
 
-  // Modal 6: TikTok Config (Redesigned)
+  // Modal 6: TikTok Config (Redesigned - Global Per-Project & GPM Mapping)
   const btnOpenTikTok = document.getElementById('btn-open-tiktok-config');
   if (btnOpenTikTok) {
     btnOpenTikTok.addEventListener('click', async () => {
+      openModal('modal-tiktok-config');
+      const countEl = document.getElementById('lbl-gpm-profiles-count');
+      if (countEl) countEl.textContent = '⏳ Đang tự động quét GPM profiles...';
+
       try {
+        // Tự động lưu trạng thái kênh hiện tại trước để đồng bộ số kênh mới nhất
+        await saveCurrentProjectState();
+
+        // Tự động quét và nạp profiles từ GPM Port 9495 không cần user bấm nút thủ công
+        const [gpmRes, globalCfg, allProjs] = await Promise.all([
+          window.pywebview.api.sync_gpm_profiles().catch(() => ({ profiles: [] })),
+          window.pywebview.api.get_global_tiktok_config().catch(() => ({})),
+          window.pywebview.api.get_all_projects_details().catch(() => [])
+        ]);
+
+        if (gpmRes && gpmRes.profiles) {
+          appState.gpm_profiles = gpmRes.profiles;
+        }
+        if (globalCfg) {
+          appState.global_tiktok_config = globalCfg;
+        }
+        if (allProjs && allProjs.length > 0) {
+          appState.all_projects_details = allProjs;
+        }
         renderTikTokConfigModal();
       } catch (err) {
-        console.error('Error rendering TikTok config modal:', err);
+        console.error('Error auto-loading GPM and TikTok configs:', err);
+        renderTikTokConfigModal();
       }
-      openModal('modal-tiktok-config');
     });
   }
 
-  document.getElementById('btn-sync-gpm').addEventListener('click', async () => {
-    const res = await window.pywebview.api.sync_gpm_profiles();
-    if (res.success) {
-      appState.gpm_profiles = res.profiles;
-      alert(`Đã đồng bộ ${res.profiles.length} profiles từ GPMLogin!`);
-      renderTikTokConfigModal();
-    } else {
-      alert(`Lỗi kết nối GPMLogin: ${res.message}`);
-    }
-  });
+  const btnSyncGpm = document.getElementById('btn-sync-gpm');
+  if (btnSyncGpm) {
+    btnSyncGpm.addEventListener('click', async () => {
+      const res = await window.pywebview.api.sync_gpm_profiles();
+      if (res.success) {
+        appState.gpm_profiles = res.profiles;
+        alert(`Đã nạp thành công ${res.profiles.length} profiles từ GPMLogin!`);
+        renderTikTokConfigModal();
+      } else {
+        alert(`Lỗi kết nối GPMLogin: ${res.message}`);
+      }
+    });
+  }
 
-  document.getElementById('btn-save-all-tiktok-config').addEventListener('click', async () => {
-    await saveTikTokConfigFromModal();
-    closeModal('modal-tiktok-config');
-    renderChannelsTable();
-  });
+  const btnSaveTikTok = document.getElementById('btn-save-all-tiktok-config');
+  if (btnSaveTikTok) {
+    btnSaveTikTok.addEventListener('click', async () => {
+      await saveTikTokConfigFromModal();
+      closeModal('modal-tiktok-config');
+      renderChannelsTable();
+    });
+  }
+
+  // Quick Search for GPM Profile / Project
+  const inputSearch = document.getElementById('input-search-gpm-project');
+  if (inputSearch) {
+    inputSearch.addEventListener('input', (e) => {
+      filterTikTokProjectsTable(e.target.value.trim().toLowerCase());
+    });
+  }
 
   // Modal 7: Telegram Config
   document.getElementById('btn-open-telegram-config').addEventListener('click', () => {
@@ -607,69 +694,160 @@ async function refreshApiPoolData() {
 }
 
 // ==========================================
-// TIKTOK CONFIG MODAL LOGIC (REDESIGNED)
+// TIKTOK CONFIG MODAL LOGIC (GLOBAL PER-PROJECT)
 // ==========================================
 
+function filterTikTokProjectsTable(keyword) {
+  const tbody = document.getElementById('tbody-tiktok-projects');
+  if (!tbody) return;
+  const rows = tbody.querySelectorAll('tr');
+  let matched = 0;
+  const kw = (keyword || '').toLowerCase().trim();
+
+  rows.forEach(tr => {
+    const pName = (tr.getAttribute('data-project') || '').toLowerCase();
+    const sel = tr.querySelector('.sel-project-gpm-profile');
+    const triggerText = tr.querySelector('.gpm-dropdown-trigger-text');
+    const val = sel ? (sel.value || '').toLowerCase() : '';
+    const label = triggerText ? (triggerText.textContent || '').toLowerCase() : '';
+
+    if (!kw || pName.includes(kw) || label.includes(kw) || val.includes(kw)) {
+      tr.style.display = '';
+      matched++;
+    } else {
+      tr.style.display = 'none';
+    }
+  });
+
+  const lbl = document.getElementById('lbl-search-match-count');
+  if (lbl) {
+    lbl.textContent = kw ? `(Hiển thị ${matched}/${rows.length} dự án)` : '';
+  }
+}
+
 function renderTikTokConfigModal() {
-  const tbody = document.getElementById('tbody-tiktok-channels');
+  const tbody = document.getElementById('tbody-tiktok-projects');
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  const cfg = appState.tiktok_config || {};
+  const globalCfg = appState.global_tiktok_config || appState.tiktok_config || {};
   const elTimeout = document.getElementById('input-tiktok-upload-timeout');
-  if (elTimeout) elTimeout.value = cfg.upload_timeout || 30;
+  if (elTimeout) elTimeout.value = globalCfg.upload_timeout || 30;
   const elNextDelay = document.getElementById('input-tiktok-next-delay');
-  if (elNextDelay) elNextDelay.value = cfg.next_video_delay || 180;
+  if (elNextDelay) elNextDelay.value = globalCfg.next_video_delay || 180;
   const elGpmMode = document.getElementById('select-gpm-open-mode');
-  if (elGpmMode) elGpmMode.value = cfg.gpm_open_mode || 'on_new_video';
+  if (elGpmMode) elGpmMode.value = globalCfg.gpm_open_mode || 'on_new_video';
   const elCaption = document.getElementById('select-caption-mode');
-  if (elCaption) elCaption.value = cfg.caption_mode || 'keep_title';
+  if (elCaption) elCaption.value = globalCfg.caption_mode || 'keep_title';
 
   const gpmProfiles = appState.gpm_profiles || [];
   const elCount = document.getElementById('lbl-gpm-profiles-count');
   if (elCount) elCount.textContent = `Đã nạp ${gpmProfiles.length} profiles`;
 
-  const channels = appState.channels || [];
-  if (channels.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-dim); padding: 24px;">Dự án hiện tại chưa có kênh YouTube nào. Hãy thêm kênh ở màn hình chính!</td></tr>`;
+  let projectsList = appState.all_projects_details || [];
+  if (projectsList.length === 0 && appState.projects && appState.projects.length > 0) {
+    projectsList = appState.projects.map(p => ({
+      name: p,
+      channel_count: (p === appState.active_project) ? (appState.channels || []).length : 0
+    }));
+  }
+
+  if (projectsList.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-dim); padding: 24px;">Chưa có dự án nào trong hệ thống!</td></tr>`;
     return;
   }
 
-  const chSettings = cfg.channels_config || {};
+  const projectConfigs = globalCfg.project_configs || {};
 
-  channels.forEach((ch, idx) => {
-    const tr = document.createElement('tr');
-    const cur = chSettings[ch] || {};
+  projectsList.forEach((p, idx) => {
+    const pName = p.name || `Dự án ${idx + 1}`;
+    let chCount = 0;
+    if (p.channel_count !== undefined && p.channel_count !== null) {
+      chCount = p.channel_count;
+    } else if (p.channels_count !== undefined && p.channels_count !== null) {
+      chCount = p.channels_count;
+    } else if (Array.isArray(p.channels)) {
+      chCount = p.channels.length;
+    }
+
+    if (pName === appState.active_project && Array.isArray(appState.channels) && appState.channels.length > 0) {
+      chCount = appState.channels.length;
+    }
+
+    const cur = projectConfigs[pName] || {};
     const selectedPid = cur.profile_id || '';
-    const selectedQuality = cur.quality || '720';
-    const selectedFps = cur.fps || '60';
-    const selectedMode = cur.process_mode || 'extend_61s';
+    const selectedQuality = cur.quality || '720_fps';
+    const selectedFps = cur.fps || '120';
+    const selectedMode = cur.process_mode || 'direct';
 
-    // Build GPM Profiles select options
-    let gpmOptions = `<option value="">-- Chưa gán Profile GPM --</option>`;
-    gpmProfiles.forEach(p => {
-      const isSel = p.id === selectedPid ? 'selected' : '';
-      const label = `${p.name || 'Profile'} (${p.id.substring(0, 8)}...)`;
-      gpmOptions += `<option value="${p.id}" ${isSel}>${label}</option>`;
+    // Xác định label hiển thị hiện tại của Profile
+    let currentDisplayLabel = '-- Chưa gán Profile GPM --';
+    const matchedProf = gpmProfiles.find(prof => prof.id === selectedPid);
+    if (matchedProf) {
+      currentDisplayLabel = `${matchedProf.name || 'Profile'} (${matchedProf.id.substring(0, 8)}...)`;
+    } else if (selectedPid) {
+      currentDisplayLabel = selectedPid;
+    }
+
+    // Build GPM Profiles list items cho Searchable Custom Dropdown
+    let itemsHtml = '';
+    gpmProfiles.forEach(prof => {
+      const isSel = prof.id === selectedPid ? 'selected' : '';
+      const label = `${prof.name || 'Profile'} (${prof.id.substring(0, 8)}...)`;
+      itemsHtml += `
+        <div class="gpm-dropdown-item ${isSel}" data-value="${prof.id}" data-label="${label}">
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${label}</span>
+          ${isSel ? '<span style="color: var(--cyan); font-weight: bold; margin-left: 6px;">✓</span>' : ''}
+        </div>
+      `;
     });
 
+    const isCurrentActive = pName === appState.active_project;
+    const tr = document.createElement('tr');
+    tr.setAttribute('data-project', pName);
+
     tr.innerHTML = `
-      <td style="color: var(--text-dim); text-align: center;">${idx + 1}</td>
-      <td style="word-break: break-all; font-weight: 500; font-size: 11.5px;">${ch}</td>
+      <td style="color: var(--text-dim); text-align: center; font-weight: 600;">${idx + 1}</td>
       <td>
-        <select class="select-control sel-gpm-profile" data-ch="${ch}" style="width: 100%;">
-          ${gpmOptions}
-        </select>
+        <div style="font-weight: 700; color: ${isCurrentActive ? 'var(--cyan)' : '#fff'}; font-size: 13px;">
+          📁 ${pName} ${isCurrentActive ? '<span style="font-size: 10px; color: var(--emerald); font-weight: normal;">(Đang mở)</span>' : ''}
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+          ${chCount > 0 ? `📺 ${chCount} kênh YouTube` : '<span style="color: var(--amber);">Chưa có kênh</span>'}
+        </div>
       </td>
       <td>
-        <select class="select-control sel-quality" data-ch="${ch}" style="width: 100%;">
+        <!-- Searchable Custom Dropdown: Có ô tìm kiếm trực tiếp trong menu dropdown -->
+        <div class="gpm-dropdown-wrapper" data-project="${pName}">
+          <input type="hidden" class="sel-project-gpm-profile" data-project="${pName}" value="${selectedPid}">
+          <div class="gpm-dropdown-trigger" data-project="${pName}">
+            <span class="gpm-dropdown-trigger-text">${currentDisplayLabel}</span>
+            <span class="gpm-dropdown-trigger-icon">▼</span>
+          </div>
+          <div class="gpm-dropdown-menu" data-project="${pName}">
+            <div class="gpm-dropdown-search">
+              <span class="gpm-dropdown-search-icon">🔍</span>
+              <input type="text" class="gpm-search-input" data-project="${pName}" placeholder="Tìm kiếm profile..." autocomplete="off">
+            </div>
+            <div class="gpm-dropdown-items" data-project="${pName}">
+              <div class="gpm-dropdown-item ${!selectedPid ? 'selected' : ''}" data-value="" data-label="-- Chưa gán Profile GPM --">
+                <span>-- Chưa gán Profile GPM --</span>
+                ${!selectedPid ? '<span style="color: var(--cyan); font-weight: bold; margin-left: 6px;">✓</span>' : ''}
+              </div>
+              ${itemsHtml}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td>
+        <select class="select-control sel-project-quality" data-project="${pName}" style="width: 100%;">
           <option value="720" ${selectedQuality === '720' ? 'selected' : ''}>⚡ 720p (Siêu tốc)</option>
           <option value="1080" ${selectedQuality === '1080' ? 'selected' : ''}>🎬 1080p (Full HD)</option>
           <option value="720_fps" ${selectedQuality === '720_fps' ? 'selected' : ''}>🎞 720p Nén FPS</option>
         </select>
-        <div class="fps-wrapper" data-ch="${ch}" style="margin-top: 4px; display: ${selectedQuality === '720_fps' ? 'flex' : 'none'}; align-items: center; gap: 4px;">
+        <div class="fps-wrapper" data-project="${pName}" style="margin-top: 4px; display: ${selectedQuality === '720_fps' ? 'flex' : 'none'}; align-items: center; gap: 4px;">
           <span style="font-size: 11px; color: var(--cyan); font-weight: 600;">FPS:</span>
-          <select class="select-control sel-fps" data-ch="${ch}" style="font-size: 11px; padding: 2px 4px; width: 100%;">
+          <select class="select-control sel-project-fps" data-project="${pName}" style="font-size: 11px; padding: 2px 4px; width: 100%;">
             <option value="60" ${selectedFps === '60' ? 'selected' : ''}>60 FPS (scale 2)</option>
             <option value="120" ${selectedFps === '120' ? 'selected' : ''}>120 FPS (scale 6)</option>
             <option value="240" ${selectedFps === '240' ? 'selected' : ''}>240 FPS (scale 12)</option>
@@ -677,26 +855,137 @@ function renderTikTokConfigModal() {
         </div>
       </td>
       <td>
-        <select class="select-control sel-process-mode" data-ch="${ch}" style="width: 100%;">
+        <select class="select-control sel-project-process-mode" data-project="${pName}" style="width: 100%;">
           <option value="extend_61s" ${selectedMode === 'extend_61s' ? 'selected' : ''}>✂ Edit đủ 1m01s (≥61s FFmpeg)</option>
-          <option value="direct" ${selectedMode === 'direct' ? 'selected' : ''}>⚡ Tải up luôn (Trực tiếp)</option>
+          <option value="direct" ${selectedMode === 'direct' ? 'selected' : ''}>⚡ Tải up luôn (Trực tiếp 0s)</option>
         </select>
       </td>
       <td style="text-align: center;">
         <div style="display: flex; gap: 4px; justify-content: center;">
-          <button class="btn btn-emerald btn-sm btn-test-start" data-ch="${ch}">▶ Mở</button>
-          <button class="btn btn-ruby btn-sm btn-test-stop" data-ch="${ch}">⏹ Đóng</button>
+          <button class="btn btn-emerald btn-sm btn-test-start-proj" data-project="${pName}">▶ Mở</button>
+          <button class="btn btn-ruby btn-sm btn-test-stop-proj" data-project="${pName}">⏹ Đóng</button>
         </div>
       </td>
     `;
     tbody.appendChild(tr);
   });
 
+  // Attach Custom Searchable Dropdown Interactions
+  // 1. Toggle dropdown menu khi click trigger
+  tbody.querySelectorAll('.gpm-dropdown-trigger').forEach(trigger => {
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pName = trigger.getAttribute('data-project');
+      const menu = tbody.querySelector(`.gpm-dropdown-menu[data-project="${CSS.escape(pName)}"]`);
+      const isAlreadyActive = menu ? menu.classList.contains('active') : false;
+
+      // Đóng tất cả menu khác
+      document.querySelectorAll('.gpm-dropdown-menu.active').forEach(m => m.classList.remove('active'));
+      document.querySelectorAll('.gpm-dropdown-trigger.active').forEach(t => t.classList.remove('active'));
+
+      if (menu && !isAlreadyActive) {
+        menu.classList.add('active');
+        trigger.classList.add('active');
+
+        // Reset search input & auto-focus
+        const searchInput = menu.querySelector('.gpm-search-input');
+        if (searchInput) {
+          searchInput.value = '';
+          menu.querySelectorAll('.gpm-dropdown-item').forEach(it => it.style.display = 'flex');
+          setTimeout(() => searchInput.focus(), 60);
+        }
+      }
+    });
+  });
+
+  // 2. Tìm kiếm bên trong dropdown
+  tbody.querySelectorAll('.gpm-search-input').forEach(searchInput => {
+    searchInput.addEventListener('click', (e) => e.stopPropagation());
+    searchInput.addEventListener('input', (e) => {
+      const pName = e.target.getAttribute('data-project');
+      const kw = e.target.value.trim().toLowerCase();
+      const menu = tbody.querySelector(`.gpm-dropdown-menu[data-project="${CSS.escape(pName)}"]`);
+      if (!menu) return;
+
+      const items = menu.querySelectorAll('.gpm-dropdown-item');
+      let matched = 0;
+      items.forEach(it => {
+        const text = (it.getAttribute('data-label') || it.textContent || '').toLowerCase();
+        const val = (it.getAttribute('data-value') || '').toLowerCase();
+        if (!kw || text.includes(kw) || val.includes(kw)) {
+          it.style.display = 'flex';
+          matched++;
+        } else {
+          it.style.display = 'none';
+        }
+      });
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const pName = searchInput.getAttribute('data-project');
+        const menu = tbody.querySelector(`.gpm-dropdown-menu[data-project="${CSS.escape(pName)}"]`);
+        if (!menu) return;
+        const visibleItems = Array.from(menu.querySelectorAll('.gpm-dropdown-item')).filter(it => it.style.display !== 'none');
+        if (visibleItems.length > 0) {
+          // Nếu có nhiều hơn 1 và item đầu là '-- Chưa gán --', ưu tiên item kết quả đầu tiên
+          const targetItem = (visibleItems.length > 1 && visibleItems[0].getAttribute('data-value') === '') ? visibleItems[1] : visibleItems[0];
+          targetItem.click();
+        }
+      }
+    });
+  });
+
+  // 3. Chọn 1 item trong dropdown
+  tbody.querySelectorAll('.gpm-dropdown-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wrapper = item.closest('.gpm-dropdown-wrapper');
+      if (!wrapper) return;
+      const hiddenInput = wrapper.querySelector('.sel-project-gpm-profile');
+      const triggerText = wrapper.querySelector('.gpm-dropdown-trigger-text');
+      const menu = wrapper.querySelector('.gpm-dropdown-menu');
+      const trigger = wrapper.querySelector('.gpm-dropdown-trigger');
+
+      const val = item.getAttribute('data-value') || '';
+      const label = item.getAttribute('data-label') || item.textContent.trim();
+
+      if (hiddenInput) hiddenInput.value = val;
+      if (triggerText) triggerText.textContent = label;
+
+      wrapper.querySelectorAll('.gpm-dropdown-item').forEach(it => {
+        it.classList.remove('selected');
+        const check = it.querySelector('span:last-child');
+        if (check && check.textContent.includes('✓')) check.remove();
+      });
+
+      item.classList.add('selected');
+      if (!item.querySelector('span:last-child')?.textContent.includes('✓')) {
+        item.insertAdjacentHTML('beforeend', '<span style="color: var(--cyan); font-weight: bold; margin-left: 6px;">✓</span>');
+      }
+
+      if (menu) menu.classList.remove('active');
+      if (trigger) trigger.classList.remove('active');
+    });
+  });
+
+  // 4. Click bên ngoài bảng tự động đóng mọi dropdown đang mở
+  if (!window._gpmDropdownGlobalHandlerAttached) {
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.gpm-dropdown-wrapper')) {
+        document.querySelectorAll('.gpm-dropdown-menu.active').forEach(m => m.classList.remove('active'));
+        document.querySelectorAll('.gpm-dropdown-trigger.active').forEach(t => t.classList.remove('active'));
+      }
+    });
+    window._gpmDropdownGlobalHandlerAttached = true;
+  }
+
   // Attach change listeners for dynamic FPS dropdown display
-  tbody.querySelectorAll('.sel-quality').forEach(sel => {
+  tbody.querySelectorAll('.sel-project-quality').forEach(sel => {
     sel.addEventListener('change', (e) => {
-      const ch = e.target.getAttribute('data-ch');
-      const fpsWrap = tbody.querySelector(`.fps-wrapper[data-ch="${CSS.escape(ch)}"]`);
+      const pName = e.target.getAttribute('data-project');
+      const fpsWrap = tbody.querySelector(`.fps-wrapper[data-project="${CSS.escape(pName)}"]`);
       if (fpsWrap) {
         fpsWrap.style.display = e.target.value === '720_fps' ? 'flex' : 'none';
       }
@@ -704,88 +993,82 @@ function renderTikTokConfigModal() {
   });
 
   // Attach test start/stop button handlers
-  tbody.querySelectorAll('.btn-test-start').forEach(btn => {
+  tbody.querySelectorAll('.btn-test-start-proj').forEach(btn => {
     btn.addEventListener('click', async (e) => {
-      const ch = e.target.getAttribute('data-ch');
-      const rowSel = tbody.querySelector(`.sel-gpm-profile[data-ch="${CSS.escape(ch)}"]`);
+      const pName = e.target.getAttribute('data-project');
+      const rowSel = tbody.querySelector(`.sel-project-gpm-profile[data-project="${CSS.escape(pName)}"]`);
       const pid = rowSel ? rowSel.value : '';
       if (!pid) {
-        alert('Vui lòng chọn Profile GPM cho kênh này trước!');
+        alert(`Vui lòng chọn Profile GPM cho dự án '${pName}' trước!`);
         return;
       }
       const res = await window.pywebview.api.test_start_gpm_profile(pid);
       if (res.success) {
-        alert(`Đã khởi động profile ${pid} trên port ${res.port}`);
+        alert(`Đã khởi động GPM Profile [${pid}] cho dự án '${pName}' trên port ${res.port}`);
       } else {
-        alert(`Lỗi mở GPM: ${res.message}`);
+        alert(`Lỗi mở GPM Profile: ${res.message}`);
       }
     });
   });
 
-  tbody.querySelectorAll('.btn-test-stop').forEach(btn => {
+  tbody.querySelectorAll('.btn-test-stop-proj').forEach(btn => {
     btn.addEventListener('click', async (e) => {
-      const ch = e.target.getAttribute('data-ch');
-      const rowSel = tbody.querySelector(`.sel-gpm-profile[data-ch="${CSS.escape(ch)}"]`);
+      const pName = e.target.getAttribute('data-project');
+      const rowSel = tbody.querySelector(`.sel-project-gpm-profile[data-project="${CSS.escape(pName)}"]`);
       const pid = rowSel ? rowSel.value : '';
       if (!pid) {
         alert('Chưa chọn Profile GPM!');
         return;
       }
       await window.pywebview.api.test_stop_gpm_profile(pid);
-      alert(`Đã gửi lệnh đóng GPM Profile.`);
+      alert(`Đã gửi lệnh đóng GPM Profile [${pid}].`);
     });
   });
+
+  // Re-apply current search filter if any
+  const searchInput = document.getElementById('input-search-gpm-project');
+  if (searchInput && searchInput.value) {
+    filterTikTokProjectsTable(searchInput.value.trim().toLowerCase());
+  }
 }
 
 async function saveTikTokConfigFromModal() {
-  const cfg = appState.tiktok_config || {};
-  cfg.upload_timeout = parseInt(document.getElementById('input-tiktok-upload-timeout').value) || 30;
-  cfg.next_video_delay = parseInt(document.getElementById('input-tiktok-next-delay').value) || 180;
+  const globalCfg = appState.global_tiktok_config || {};
+  globalCfg.upload_timeout = parseInt(document.getElementById('input-tiktok-upload-timeout').value) || 30;
+  globalCfg.next_video_delay = parseInt(document.getElementById('input-tiktok-next-delay').value) || 180;
   const elGpmMode = document.getElementById('select-gpm-open-mode');
-  if (elGpmMode) cfg.gpm_open_mode = elGpmMode.value;
-  cfg.caption_mode = document.getElementById('select-caption-mode').value;
+  if (elGpmMode) globalCfg.gpm_open_mode = elGpmMode.value;
+  globalCfg.caption_mode = document.getElementById('select-caption-mode').value;
 
-  const channels_config = {};
-  const profileToChannels = {};
+  const projectConfigs = {};
 
-  document.querySelectorAll('.sel-gpm-profile').forEach(sel => {
-    const ch = sel.getAttribute('data-ch');
-    const pid = sel.value;
-    const qSel = document.querySelector(`.sel-quality[data-ch="${CSS.escape(ch)}"]`);
-    const fSel = document.querySelector(`.sel-fps[data-ch="${CSS.escape(ch)}"]`);
-    const mSel = document.querySelector(`.sel-process-mode[data-ch="${CSS.escape(ch)}"]`);
-    const q = qSel ? qSel.value : '720';
-    const fps = fSel ? fSel.value : '60';
-    const m = mSel ? mSel.value : 'extend_61s';
+  document.querySelectorAll('#tbody-tiktok-projects tr').forEach(tr => {
+    const pName = tr.getAttribute('data-project');
+    if (!pName) return;
 
-    channels_config[ch] = {
-      profile_id: pid,
-      quality: q,
-      fps: fps,
-      process_mode: m
-    };
+    const selGpm = tr.querySelector('.sel-project-gpm-profile');
+    const selQuality = tr.querySelector('.sel-project-quality');
+    const selFps = tr.querySelector('.sel-project-fps');
+    const selMode = tr.querySelector('.sel-project-process-mode');
 
-    if (pid) {
-      if (!profileToChannels[pid]) profileToChannels[pid] = [];
-      profileToChannels[pid].push(ch);
-    }
-  });
-
-  cfg.channels_config = channels_config;
-
-  // Build profiles list to maintain full backward compatibility
-  cfg.profiles = Object.keys(profileToChannels).map(pid => {
+    const pid = selGpm ? selGpm.value : '';
     const match = (appState.gpm_profiles || []).find(p => p.id === pid);
-    return {
+    const pProfileName = match ? match.name : (pid ? pid.substring(0, 8) : '');
+
+    projectConfigs[pName] = {
       profile_id: pid,
-      profile_name: match ? match.name : pid,
-      assigned_channels: profileToChannels[pid]
+      profile_name: pProfileName,
+      quality: selQuality ? selQuality.value : '720_fps',
+      fps: selFps ? selFps.value : '120',
+      process_mode: selMode ? selMode.value : 'direct'
     };
   });
 
-  await window.pywebview.api.save_tiktok_config(cfg);
-  appState.tiktok_config = cfg;
-  appendLog(`💾 Đã lưu cấu hình TikTok Upload cho ${Object.keys(channels_config).length} kênh.`, 'success');
+  globalCfg.project_configs = projectConfigs;
+
+  await window.pywebview.api.save_global_tiktok_config(globalCfg);
+  appState.global_tiktok_config = globalCfg;
+  appendLog(`💾 Đã lưu cấu hình TikTok Upload chung cho ${Object.keys(projectConfigs).length} dự án (1 Dự Án = 1 Profile GPM).`, 'success');
 }
 
 // ==========================================
