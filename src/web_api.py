@@ -477,6 +477,7 @@ class WebBridgeApi:
         worker_start_time = datetime.now(timezone.utc)
         self.emit_log(f"🚀 [Bật tool] Mốc thời gian kích hoạt: {worker_start_time.strftime('%H:%M:%S UTC')}. Tool CHỈ tải & up video MỚI xuất bản từ thời điểm này trở đi!")
         cycle = 0
+        upload_fail_counts = {}
 
         # VÒNG LẶP QUÉT LIÊN TỤC KHÔNG NGHỈ (Chỉ dừng khi người dùng bấm nút Dừng)
         while self._is_worker_running:
@@ -559,11 +560,35 @@ class WebBridgeApi:
 
             # Tối ưu 1: Quét song song đa kênh bằng ThreadPoolExecutor (Concurrent Multi-Channel Scanning)
             # NGUYÊN TẮC: Mỗi kênh CHỈ dùng duy nhất các API keys được cấp phát riêng trong Quản lý Key!
+            # Xoay vòng Round-Robin bền vững qua từng vòng quét (Key 1 -> Key 2 -> ... -> Key N)
+            if not hasattr(self, "_channel_key_managers"):
+                self._channel_key_managers = {}
+
             def scan_channel_task(item):
                 c_idx, c_url = item
                 assigned_k = get_channel_assigned_keys(proj, c_url)
                 has_assigned_keys = bool(assigned_k)
-                k_mgr = APIKeyManager(api_keys=assigned_k) if has_assigned_keys else None
+
+                k_mgr = None
+                curr_key_tag = ""
+                if has_assigned_keys:
+                    ch_mgr_key = f"{proj}::{c_url}"
+                    if ch_mgr_key not in self._channel_key_managers:
+                        self._channel_key_managers[ch_mgr_key] = APIKeyManager(api_keys=assigned_k)
+
+                    k_mgr = self._channel_key_managers[ch_mgr_key]
+                    if k_mgr.get_keys() != assigned_k:
+                        k_mgr.set_keys(assigned_k)
+
+                    # Đồng bộ các key đã chết trong pool sang key_manager của kênh
+                    for dk in self._api_pool.dead_keys:
+                        if dk in k_mgr._keys and dk not in k_mgr._rate_limited:
+                            k_mgr.mark_rate_limited(dk)
+
+                    active_k = k_mgr.get_current_key()
+                    if active_k:
+                        k_idx = (k_mgr._index % max(1, len(assigned_k))) + 1
+                        curr_key_tag = f" [Key #{k_idx}/{len(assigned_k)}]"
 
                 def channel_key_rotate(old_k, new_k):
                     self._api_pool.dead_keys.add(old_k)
@@ -571,16 +596,20 @@ class WebBridgeApi:
                     dead_cnt = len(self._api_pool.dead_keys)
                     self._eval_js(f"document.getElementById('stat-key-dead').textContent = '({dead_cnt})'")
 
+                ch_cfg_early = ch_settings.get(c_url, {})
+                c_only_shorts = ch_cfg_early.get("only_shorts", proj_only_shorts)
+                tab_target = "shorts" if c_only_shorts else "videos"
+
                 t0_s = time.perf_counter()
                 vids = []
-                engine = "Turbo RSS"
+                engine = "yt-dlp Siêu tốc"
 
                 scan_engine = proj_scan_engine
-                if scan_engine == "rss" or not has_assigned_keys:
-                    engine = "Turbo RSS (0 Quota)" if has_assigned_keys else "Turbo RSS (0 Quota - Kênh chưa cấp API)"
-                    vids = yt_api.get_channel_videos_rss(c_url, limit=5)
+                if scan_engine in ("rss", "ytdlp") or not has_assigned_keys:
+                    engine = "yt-dlp Siêu tốc (0 Quota)" if has_assigned_keys else "yt-dlp Siêu tốc (0 Quota - Kênh chưa cấp API)"
+                    vids = yt_api.get_channel_videos_ytdlp(c_url, limit=5, tab=tab_target)
                 elif scan_engine == "api":
-                    engine = f"YouTube API v3 ({len(assigned_k)} keys riêng)"
+                    engine = f"YouTube API v3 ({len(assigned_k)} keys riêng{curr_key_tag})"
                     vids, _ = yt_api.get_channel_videos_v3(
                         channel_url=c_url,
                         limit=5,
@@ -588,17 +617,18 @@ class WebBridgeApi:
                         on_key_rotate=channel_key_rotate
                     )
                 else:  # "both" (default)
-                    engine = f"Kết hợp RSS + API v3 ({len(assigned_k)} keys riêng)"
+                    engine = f"Kết hợp yt-dlp + API v3 ({len(assigned_k)} keys riêng{curr_key_tag})"
                     vids = yt_api.get_channel_videos_combined(
                         channel_url=c_url,
                         limit=5,
                         key_manager=k_mgr,
-                        on_key_rotate=channel_key_rotate
+                        on_key_rotate=channel_key_rotate,
+                        tab=tab_target
                     )
 
                 if not vids:
-                    vids = downloader.get_channel_videos(c_url, limit=5)
-                    engine = "yt-dlp Cào dự phòng"
+                    vids = downloader.get_channel_videos(c_url, limit=5, only_shorts=c_only_shorts)
+                    engine = "yt-dlp Cào dự phòng (/shorts)" if c_only_shorts else "yt-dlp Cào dự phòng"
 
                 t_dur = time.perf_counter() - t0_s
                 return (c_idx, c_url, vids, t_dur, engine, len(assigned_k))
@@ -628,7 +658,7 @@ class WebBridgeApi:
                             target_pid = prof.get("profile_id", "")
                             break
 
-                key_badge = f"[{assigned_count} API riêng]" if assigned_count > 0 else "[Chưa cấp API - Quét RSS 0 Quota]"
+                key_badge = f"[{assigned_count} API riêng]" if assigned_count > 0 else "[Chưa cấp API - Quét yt-dlp 0 Quota]"
                 if videos:
                     self.emit_log(f"✅ [{idx+1}/{total}] [{used_engine}: {t_scan:.2f}s] {key_badge} Tìm thấy {len(videos)} video từ: {ch_url}!")
                 else:
@@ -691,6 +721,8 @@ class WebBridgeApi:
                     # 2. Chế độ "Chỉ Short"
                     if ch_only_shorts:
                         is_sh = downloader.is_shorts(v_id, duration=v_dur)
+                        if not is_sh and ("#short" in title.lower() or "/shorts/" in v.get("url", "")):
+                            is_sh = True
                         if not is_sh:
                             self.emit_log(f"⏭ [{idx+1}/{total}] [Chỉ tải Shorts] Bỏ qua video thường '{title[:35]}...' ({v_id}). Không phải Shorts!")
                             processed_videos.add(v_id)
@@ -863,15 +895,32 @@ class WebBridgeApi:
                     t_up = up_sec if (up_sec and up_sec > 0) else (time.perf_counter() - t0_up)
 
                     t_total = t_scan + t_dl + t_proc + t_up
-                    self.emit_queue_item(v_id, title, 100, "Hoàn tất")
-                    ffmpeg_info = f"FFmpeg: {t_proc:.2f}s" if process_mode == "extend_61s" else "FFmpeg: 0s (Bỏ qua)"
-                    self.emit_log(f"✅ <b>Hoàn tất siêu tốc:</b> {title} | ⏱ <b>Tổng: {t_total:.2f}s</b> (Tải: {t_dl:.2f}s | {ffmpeg_info} | GPM: 0s mở sẵn | Up: {t_up:.2f}s)")
 
                     if up_ok:
+                        self.emit_queue_item(v_id, title, 100, "Hoàn tất")
+                        ffmpeg_info = f"FFmpeg: {t_proc:.2f}s" if process_mode == "extend_61s" else "FFmpeg: 0s (Bỏ qua)"
+                        gpm_stat = "0s mở sẵn" if gpm_open_mode == "prewarm" else "Đóng sau khi up"
+                        self.emit_log(f"✅ <b>Hoàn tất siêu tốc:</b> {title} | ⏱ <b>Tổng: {t_total:.2f}s</b> (Tải: {t_dl:.2f}s | {ffmpeg_info} | GPM: {gpm_stat} | Up: {t_up:.2f}s)")
                         processed_videos.add(v_id)
                         self._save_processed_videos(processed_videos)
                         self.emit_log(f"💾 Đã lưu ID [{v_id}] vào config/processed_videos.json (Chống đăng trùng).")
-                        self.emit_log(f"🔄 Profile GPM [{target_pid[:8] if target_pid else ''}...] đã được chuyển sẵn về trang Upload để đón video tiếp theo (0s trễ)!")
+                        if gpm_open_mode == "on_new_video":
+                            if v_idx == len(unprocessed_videos) - 1:
+                                self.emit_log(f"🔒 [Chế độ Mở khi có video mới] Đã đăng xong, đang đóng Profile GPM [{target_pid[:8] if target_pid else ''}...] để giải phóng RAM & CPU...")
+                                uploader.close_browser(self._gpm_client, profile_id=target_pid)
+                                self.emit_log(f"💤 Đã đóng Profile GPM [{target_pid[:8] if target_pid else ''}...] an toàn.")
+                        else:
+                            self.emit_log(f"🔄 [Chế độ Chờ sẵn] Profile GPM [{target_pid[:8] if target_pid else ''}...] được giữ mở và chuyển sẵn về trang Upload để đón video tiếp theo (0s trễ)!")
+                    else:
+                        self.emit_queue_item(v_id, title, 0, "Lỗi upload")
+                        self.emit_log(f"❌ <b>Upload TikTok thất bại:</b> {title} | Lỗi: {up_msg}")
+                        upload_fail_counts[v_id] = upload_fail_counts.get(v_id, 0) + 1
+                        if upload_fail_counts[v_id] >= 2:
+                            self.emit_log(f"⚠️ [Đã thử {upload_fail_counts[v_id]} lần thất bại] Bỏ qua video '{title[:35]}...' ({v_id}) để không lặp vô tận. Đã lưu lịch sử.")
+                            processed_videos.add(v_id)
+                            self._save_processed_videos(processed_videos)
+                        if gpm_open_mode == "on_new_video":
+                            uploader.close_browser(self._gpm_client, profile_id=target_pid)
 
                     # 5. Báo cáo chi tiết từng bước qua Telegram
                     if self._telegram.enabled:
@@ -889,7 +938,7 @@ class WebBridgeApi:
                             f"• 🔍 Quét API v3: <b>{t_scan:.2f}s</b>\n"
                             f"• ⚡ Tải YouTube: <b>{t_dl:.2f}s</b> (Đa luồng tối đa)\n"
                             f"• ✂ Xử lý FFmpeg: <b>{t_proc:.2f}s</b> {'(Bỏ qua - Up trực tiếp)' if process_mode == 'direct' else ''}\n"
-                            f"• 🚀 Mở GPM: <b>Đã mở sẵn (0s độ trễ)</b>\n"
+                            f"• 🚀 Mở GPM: <b>{'Đã mở sẵn (0s độ trễ)' if gpm_open_mode == 'prewarm' else 'Mở khi có video mới (Tự đóng sau khi up)'}</b>\n"
                             f"• 🎵 Upload TikTok: <b>{t_up:.2f}s</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━\n"
                             f"⚡ <b>TỔNG THỜI GIAN: {t_total:.2f}s</b> ⚡"

@@ -307,9 +307,109 @@ class YouTubeAPIClient:
 
         return None
 
+    def _build_ytdlp_channel_url(self, channel_url: str, tab: str = "shorts") -> str:
+        """Tạo đường dẫn chuẩn tới tab Shorts hoặc Videos của kênh YouTube để quét bằng yt-dlp."""
+        raw = channel_url.strip().rstrip("/")
+
+        # Nếu chọn tab="shorts", TUYỆT ĐỐI chuyển mọi link kênh về tab /shorts
+        if tab == "shorts":
+            if raw.endswith("/videos"):
+                raw = raw[:-7]
+            if raw.endswith("/shorts"):
+                return raw
+            if "youtube.com" in raw:
+                return f"{raw}/shorts"
+            ch_id = self.resolve_channel_id_auto(raw) or raw
+            if ch_id.startswith("UC"):
+                return f"https://www.youtube.com/channel/{ch_id}/shorts"
+            elif ch_id.startswith("@"):
+                return f"https://www.youtube.com/{ch_id}/shorts"
+            return f"https://www.youtube.com/channel/{ch_id}/shorts"
+
+        # Nếu chọn tab="videos"
+        elif tab == "videos":
+            if raw.endswith("/shorts"):
+                raw = raw[:-7]
+            if raw.endswith("/videos"):
+                return raw
+            if "youtube.com" in raw:
+                return f"{raw}/videos"
+            ch_id = self.resolve_channel_id_auto(raw) or raw
+            if ch_id.startswith("UC"):
+                return f"https://www.youtube.com/channel/{ch_id}/videos"
+            elif ch_id.startswith("@"):
+                return f"https://www.youtube.com/{ch_id}/videos"
+            return f"https://www.youtube.com/channel/{ch_id}/videos"
+
+        ch_id = self.resolve_channel_id_auto(raw) or raw
+        if ch_id.startswith("UC"):
+            return f"https://www.youtube.com/channel/{ch_id}"
+        elif ch_id.startswith("@"):
+            return f"https://www.youtube.com/{ch_id}"
+        return raw
+
+    def get_channel_videos_ytdlp(
+        self,
+        channel_url: str,
+        limit: int = 5,
+        tab: str = "shorts"
+    ) -> List[Dict[str, Any]]:
+        """
+        Quét video mới nhất qua yt-dlp Flat Playlist siêu tốc với Warm Keep-Alive (~0.25s - 0.4s).
+        - Khi tab="shorts": CHỈ QUÉT DUY NHẤT TAB /shorts, TUYỆT ĐỐI không quét /videos hay video dài.
+        - Khi tab="videos": Quét tab /videos.
+        """
+        try:
+            import yt_dlp
+        except ImportError:
+            logger.warning("yt-dlp not installed, fallback to RSS.")
+            return self.get_channel_videos_rss(channel_url, limit=limit)
+
+        if not hasattr(self, "_ytdlp_scanner"):
+            opts = {
+                "extract_flat": "in_playlist",
+                "playlist_items": f"1-{limit}",
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "socket_timeout": 5,
+                "ignoreerrors": True,
+                "nocheckcertificate": True,
+            }
+            self._ytdlp_scanner = yt_dlp.YoutubeDL(opts)
+
+        target_url = self._build_ytdlp_channel_url(channel_url, tab=tab)
+        results = []
+
+        try:
+            info = self._ytdlp_scanner.extract_info(target_url, download=False)
+            entries = info.get("entries", []) if info else []
+            for entry in entries:
+                if not entry:
+                    continue
+                v_id = entry.get("id")
+                if not v_id:
+                    continue
+                title = entry.get("title", f"Video {v_id}")
+                url = entry.get("url") or f"https://www.youtube.com/watch?v={v_id}"
+                results.append({
+                    "id": v_id,
+                    "title": title,
+                    "url": url,
+                    "duration": entry.get("duration", 0) or 0,
+                    "published": ""
+                })
+                if len(results) >= limit:
+                    break
+        except Exception as e:
+            logger.debug(f"yt-dlp scanner error for {channel_url} on {target_url}: {e}")
+
+        # Khi tab="shorts", chỉ trả về video quét được từ tab /shorts, KHÔNG BAO GIỜ fallback sang tab /videos
+        return results
+
     def get_channel_videos_rss(self, channel_url: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Kỹ thuật 4: Quét video mới nhất qua YouTube Atom RSS Feed.
+        Kỹ thuật 4: Quét video mới nhất qua YouTube Atom RSS Feed (Dự phòng).
         Tốc độ phản hồi cực nhanh (~50ms - 300ms), 0 Quota Google API, không phụ thuộc trình duyệt.
         """
         ch_id = self.resolve_channel_id_auto(channel_url)
@@ -356,23 +456,24 @@ class YouTubeAPIClient:
         channel_url: str,
         limit: int = 5,
         key_manager: Optional[APIKeyManager] = None,
-        on_key_rotate: Optional[Callable[[str, str], None]] = None
+        on_key_rotate: Optional[Callable[[str, str], None]] = None,
+        tab: str = "shorts"
     ) -> List[Dict[str, Any]]:
         """
-        Quét kết hợp cả 2: YouTube Atom RSS Feed + YouTube Data API v3.
+        Quét kết hợp cả 2: yt-dlp Flat Playlist (Warm Session) + YouTube Data API v3.
         Hợp nhất danh sách video từ cả 2 nguồn, loại bỏ trùng lặp theo ID và giữ thứ tự mới nhất.
-        Đảm bảo không bao giờ bỏ sót video (ngay cả khi RSS hoặc API v3 có độ trễ ngắn).
+        Đảm bảo phát hiện video tức thì ngay khi đăng (không bị trễ do cache của RSS).
         """
         combined: Dict[str, Dict[str, Any]] = {}
 
-        # 1. Quét qua RSS
+        # 1. Quét qua yt-dlp warm session
         try:
-            rss_vids = self.get_channel_videos_rss(channel_url, limit=limit)
-            for v in rss_vids:
+            ytdlp_vids = self.get_channel_videos_ytdlp(channel_url, limit=limit, tab=tab)
+            for v in ytdlp_vids:
                 if v.get("id"):
                     combined[v["id"]] = v
         except Exception as e:
-            logger.debug(f"Combined RSS error: {e}")
+            logger.debug(f"Combined yt-dlp error: {e}")
 
         # 2. Quét qua API v3 nếu có key
         mgr = key_manager or self.key_manager
@@ -389,7 +490,14 @@ class YouTubeAPIClient:
                     if not vid_id:
                         continue
                     if vid_id not in combined:
-                        combined[vid_id] = v
+                        if tab == "shorts":
+                            # Khi ở chế độ Shorts, chỉ nhận video từ API nếu chắc chắn là Shorts (duration <= 180s hoặc có #short)
+                            dur = v.get("duration", 0)
+                            title_lower = v.get("title", "").lower()
+                            if (0 < dur <= 180) or "#short" in title_lower:
+                                combined[vid_id] = v
+                        else:
+                            combined[vid_id] = v
                     else:
                         if v.get("duration") and not combined[vid_id].get("duration"):
                             combined[vid_id]["duration"] = v["duration"]

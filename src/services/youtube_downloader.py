@@ -134,21 +134,21 @@ class YouTubeDownloader:
         if "/shorts/" in str(video_url_or_id):
             return True
 
-        if 0 < duration <= 60:
+        # YouTube Shorts hiện tại hỗ trợ tối đa 3 phút (180 giây)
+        if 0 < duration <= 180:
             return True
         elif duration > 180:
             return False
 
         url = f"https://www.youtube.com/shorts/{vid_id}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
-            method="HEAD"
-        )
-        for _ in range(2):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
+        for method in ["HEAD", "GET"]:
             try:
+                req = urllib.request.Request(url, headers=headers, method=method)
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
                     final_url = resp.url
                     if "/shorts/" in final_url:
@@ -165,7 +165,7 @@ class YouTubeDownloader:
                 elif e.code == 404:
                     return False
             except Exception as e:
-                logger.debug(f"is_shorts check attempt error for {vid_id}: {e}")
+                logger.debug(f"is_shorts check {method} attempt error for {vid_id}: {e}")
                 time.sleep(0.2)
 
         return False
@@ -209,7 +209,9 @@ class YouTubeDownloader:
             h = info.get("height", 0)
             if w > 0 and h > 0:
                 return w > h
-            return True
+            # Nếu chưa xác định chắc chắn được kích thước qua metadata sơ bộ, không vội chặn trước khi tải
+            # Bước sau tải sẽ có ffprobe kiểm tra kích thước file chuẩn xác 100% trong 0.01s
+            return False
 
         return False
 
@@ -225,10 +227,11 @@ class YouTubeDownloader:
         }
         return opts
 
-    def get_channel_videos(self, channel_url: str, limit: int = 10) -> List[Dict]:
+    def get_channel_videos(self, channel_url: str, limit: int = 10, only_shorts: bool = False) -> List[Dict]:
         """
         Fetch latest real video items from a channel URL, playlist, or single video.
         Returns an empty list [] if the channel has no public videos (never returns fake/sample videos).
+        - Khi only_shorts=True: CHỈ QUÉT DUY NHẤT TAB /shorts, TUYỆT ĐỐI không quét /videos.
         """
         # 1. Check if user provided a direct video or short URL
         direct_vid_id = self._extract_single_video_id(channel_url)
@@ -251,27 +254,35 @@ class YouTubeDownloader:
 
         # Build candidate URLs in optimal order
         candidates = []
-        if cleaned_url.endswith("/shorts"):
-            candidates = [cleaned_url, cleaned_url.replace("/shorts", "/videos"), cleaned_url.replace("/shorts", "")]
-        elif cleaned_url.endswith("/videos"):
-            candidates = [cleaned_url, cleaned_url.replace("/videos", "/shorts"), cleaned_url.replace("/videos", "")]
-        elif "@" in cleaned_url:
-            candidates = [f"{cleaned_url}/shorts", f"{cleaned_url}/videos", cleaned_url]
-        elif "/channel/UC" in cleaned_url:
-            m = re.search(r"/channel/(UC[a-zA-Z0-9_-]+)", cleaned_url)
-            if m:
-                uc_id = m.group(1)
-                uu_id = "UU" + uc_id[2:]
-                candidates = [
-                    f"https://www.youtube.com/playlist?list={uu_id}",
-                    f"{cleaned_url}/shorts",
-                    f"{cleaned_url}/videos",
-                    cleaned_url,
-                ]
+        if only_shorts:
+            # Khi tick "Chỉ Short", TUYỆT ĐỐI chỉ quét duy nhất tab /shorts
+            if cleaned_url.endswith("/videos"):
+                cleaned_url = cleaned_url[:-7]
+            if not cleaned_url.endswith("/shorts"):
+                cleaned_url = f"{cleaned_url}/shorts"
+            candidates = [cleaned_url]
+        else:
+            if cleaned_url.endswith("/shorts"):
+                candidates = [cleaned_url, cleaned_url.replace("/shorts", "/videos"), cleaned_url.replace("/shorts", "")]
+            elif cleaned_url.endswith("/videos"):
+                candidates = [cleaned_url, cleaned_url.replace("/videos", "/shorts"), cleaned_url.replace("/videos", "")]
+            elif "@" in cleaned_url:
+                candidates = [f"{cleaned_url}/shorts", f"{cleaned_url}/videos", cleaned_url]
+            elif "/channel/UC" in cleaned_url:
+                m = re.search(r"/channel/(UC[a-zA-Z0-9_-]+)", cleaned_url)
+                if m:
+                    uc_id = m.group(1)
+                    uu_id = "UU" + uc_id[2:]
+                    candidates = [
+                        f"https://www.youtube.com/playlist?list={uu_id}",
+                        f"{cleaned_url}/shorts",
+                        f"{cleaned_url}/videos",
+                        cleaned_url,
+                    ]
+                else:
+                    candidates = [f"{cleaned_url}/shorts", f"{cleaned_url}/videos", cleaned_url]
             else:
                 candidates = [f"{cleaned_url}/shorts", f"{cleaned_url}/videos", cleaned_url]
-        else:
-            candidates = [f"{cleaned_url}/shorts", f"{cleaned_url}/videos", cleaned_url]
 
         opts = self._get_base_ydl_opts()
         opts.update({

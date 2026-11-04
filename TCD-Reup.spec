@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('src/web', 'src/web'), ('assets', 'assets')]
 binaries = []
-hiddenimports = ['clr', 'pythonnet', 'bottle', 'proxy_tools', 'webview.platforms.winforms', 'webview.platforms.edgechromium', 'googleapiclient', 'googleapiclient.discovery', 'googleapiclient.errors', 'cryptography', 'selenium', 'selenium.webdriver']
+hiddenimports = ['clr', 'pythonnet', 'bottle', 'proxy_tools', 'webview.platforms.winforms', 'webview.platforms.edgechromium', 'googleapiclient', 'googleapiclient.discovery', 'googleapiclient.errors', 'cryptography', 'selenium', 'selenium.webdriver', 'selenium.webdriver.chrome.webdriver', 'selenium.webdriver.chrome.service', 'selenium.webdriver.chrome.options', 'selenium.webdriver.common.by', 'selenium.webdriver.support.ui', 'selenium.webdriver.support.expected_conditions']
 tmp_ret = collect_all('pywebview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pythonnet')
@@ -11,6 +11,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('clr_loader')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('yt_dlp')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('selenium')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
@@ -23,7 +25,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['PyQt5', 'PyQt6', 'PySide2', 'PySide6', 'matplotlib', 'tkinter'],
     noarchive=False,
     optimize=0,
 )

@@ -27,6 +27,7 @@ def build():
         "--collect-all", "pythonnet",
         "--collect-all", "clr_loader",
         "--collect-all", "yt_dlp",
+        "--collect-all", "selenium",
         "--hidden-import", "clr",
         "--hidden-import", "pythonnet",
         "--hidden-import", "bottle",
@@ -39,6 +40,18 @@ def build():
         "--hidden-import", "cryptography",
         "--hidden-import", "selenium",
         "--hidden-import", "selenium.webdriver",
+        "--hidden-import", "selenium.webdriver.chrome.webdriver",
+        "--hidden-import", "selenium.webdriver.chrome.service",
+        "--hidden-import", "selenium.webdriver.chrome.options",
+        "--hidden-import", "selenium.webdriver.common.by",
+        "--hidden-import", "selenium.webdriver.support.ui",
+        "--hidden-import", "selenium.webdriver.support.expected_conditions",
+        "--exclude-module", "PyQt5",
+        "--exclude-module", "PyQt6",
+        "--exclude-module", "PySide2",
+        "--exclude-module", "PySide6",
+        "--exclude-module", "matplotlib",
+        "--exclude-module", "tkinter",
         "main.py"
     ]
 
@@ -61,6 +74,19 @@ def build():
             shutil.copytree(src_d, dst_d, dirs_exist_ok=True)
         else:
             os.makedirs(dst_d, exist_ok=True)
+
+    # Tao file TCD-Reup.exe.config cho phep load DLL khong bi chan boi Windows Mark of the Web
+    config_xml = """<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+  <runtime>
+    <loadFromRemoteSources enabled="true"/>
+  </runtime>
+</configuration>
+"""
+    exe_config_path = os.path.join(dist_app_dir, "TCD-Reup.exe.config")
+    with open(exe_config_path, "w", encoding="utf-8") as f:
+        f.write(config_xml.strip())
+    print(f"Created config: {exe_config_path}")
 
     print("\n=== BUILD HOAN TAT ===")
     print("Executable location:", os.path.join(dist_app_dir, "TCD-Reup.exe"))

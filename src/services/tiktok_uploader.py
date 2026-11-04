@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, Tuple
 
 try:
     from selenium import webdriver
+    import selenium.webdriver.chrome.webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.common.by import By
@@ -137,12 +138,15 @@ class TikTokUploader:
             if not ok or not isinstance(data, dict):
                 return False, f"Không thể mở GPM profile: {msg}"
 
-            port = data.get("remote_debugging_port")
+            addr = data.get("remote_debugging_address") or data.get("selenium_remote_debug_address")
+            port = data.get("remote_debugging_port") or data.get("port")
             driver_path = data.get("driver_path")
-            if not port:
+            if addr:
+                self.remote_debugging_address = addr
+            elif port:
+                self.remote_debugging_address = f"127.0.0.1:{port}"
+            else:
                 return False, "GPM không trả về cổng remote debugging"
-
-            self.remote_debugging_address = f"127.0.0.1:{port}"
             self.gpm_profile_id = profile_id
             if driver_path:
                 self._cached_driver_path = driver_path
@@ -598,10 +602,13 @@ class TikTokUploader:
             if gpm_client and profile_id:
                 ok, data, msg = gpm_client.start_profile(profile_id)
                 if ok and isinstance(data, dict):
-                    port = data.get("remote_debugging_port")
-                    driver_path = data.get("driver_path")
-                    if port:
+                    addr = data.get("remote_debugging_address") or data.get("selenium_remote_debug_address")
+                    port = data.get("remote_debugging_port") or data.get("port")
+                    if addr:
+                        self.remote_debugging_address = addr
+                    elif port:
                         self.remote_debugging_address = f"127.0.0.1:{port}"
+                    driver_path = data.get("driver_path")
                     if driver_path:
                         self._cached_driver_path = driver_path
                         logger.info(f"Đã nhận driver_path từ GPMLogin start_profile API: {driver_path}")
@@ -701,10 +708,10 @@ class TikTokUploader:
             logger.error(f"Lỗi upload TikTok: {e}")
             return False, elapsed, str(e)
 
-    def close_browser(self, gpm_client=None) -> bool:
+    def close_browser(self, gpm_client=None, profile_id: Optional[str] = None) -> bool:
         """
         Gracefully closes Selenium session and shuts down the running GPM Profile
-        to save RAM and CPU when outside active scheduled hours.
+        to save RAM and CPU when outside active scheduled hours or after upload.
         """
         closed = False
         if self._cached_driver:
@@ -716,9 +723,10 @@ class TikTokUploader:
             finally:
                 self._cached_driver = None
 
-        if self._cached_profile_id and gpm_client:
+        pid_to_stop = profile_id or self._cached_profile_id
+        if pid_to_stop and gpm_client:
             try:
-                gpm_client.stop_profile(self._cached_profile_id)
+                gpm_client.stop_profile(pid_to_stop)
                 closed = True
             except Exception as e:
                 logger.debug(f"Error stopping GPM profile via API: {e}")

@@ -85,7 +85,9 @@ function renderInitialUI() {
   // Threads & Scan Settings
   document.getElementById('input-threads').value = appState.threads || 500;
   const elScanEngine = document.getElementById('select-scan-engine');
-  if (elScanEngine) elScanEngine.value = appState.scan_engine || 'both';
+  let currentEngine = appState.scan_engine || 'both';
+  if (currentEngine === 'rss') currentEngine = 'ytdlp';
+  if (elScanEngine) elScanEngine.value = currentEngine;
   const elMinDur = document.getElementById('input-min-duration');
   if (elMinDur) elMinDur.value = (appState.min_duration !== undefined) ? appState.min_duration : 20;
 
