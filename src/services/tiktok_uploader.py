@@ -4,6 +4,7 @@ import re
 import time
 import json
 import logging
+import threading
 import urllib.request
 from typing import Optional, Dict, Any, Tuple
 
@@ -80,8 +81,26 @@ class TikTokUploader:
         self.gpm_profile_id = gpm_profile_id
         self.remote_debugging_address = remote_debugging_address
         self._cached_driver_path = driver_path
-        self._cached_driver = None
-        self._cached_profile_id = None
+        self._drivers: Dict[str, Any] = {}
+        self._driver_lock = threading.Lock()
+
+    @property
+    def _cached_driver(self):
+        with self._driver_lock:
+            return next(iter(self._drivers.values()), None)
+
+    @_cached_driver.setter
+    def _cached_driver(self, val):
+        pass
+
+    @property
+    def _cached_profile_id(self):
+        with self._driver_lock:
+            return next(iter(self._drivers.keys()), None)
+
+    @_cached_profile_id.setter
+    def _cached_profile_id(self, val):
+        pass
 
     def _create_driver_for_address(self, address: str, driver_path: Optional[str] = None) -> Any:
         """Create a Selenium driver attached to remote address using GPMLogin's matching driver_path."""
@@ -124,14 +143,17 @@ class TikTokUploader:
         if not profile_id or not gpm_client:
             return False, "Thiếu profile_id hoặc gpm_client"
 
-        # Check if already pre-warmed
-        if self._cached_driver and self._cached_profile_id == profile_id:
+        # Check if already pre-warmed for this specific profile
+        with self._driver_lock:
+            cached_d = self._drivers.get(profile_id)
+        if cached_d:
             try:
-                _ = self._cached_driver.current_url
+                _ = cached_d.current_url
                 logger.info(f"GPM Profile {profile_id} is already pre-warmed and ready.")
                 return True, "Profile đã mở sẵn và sẵn sàng"
             except Exception:
-                self._cached_driver = None
+                with self._driver_lock:
+                    self._drivers.pop(profile_id, None)
 
         try:
             ok, data, msg = gpm_client.start_profile(profile_id)
@@ -142,22 +164,23 @@ class TikTokUploader:
             port = data.get("remote_debugging_port") or data.get("port")
             driver_path = data.get("driver_path")
             if addr:
-                self.remote_debugging_address = addr
+                remote_addr = addr
             elif port:
-                self.remote_debugging_address = f"127.0.0.1:{port}"
+                remote_addr = f"127.0.0.1:{port}"
             else:
                 return False, "GPM không trả về cổng remote debugging"
-            self.gpm_profile_id = profile_id
+
             if driver_path:
                 self._cached_driver_path = driver_path
-                logger.info(f"Đã nhận driver_path từ GPMLogin start_profile API: {driver_path}")
+            self.remote_debugging_address = remote_addr
+            self.gpm_profile_id = profile_id
 
             if not webdriver:
                 return True, "GPM đã mở (không có Selenium)"
 
             # Create driver with matching version using driver_path from GPM API
             driver = self._create_driver_for_address(
-                self.remote_debugging_address,
+                remote_addr,
                 driver_path=driver_path or self._cached_driver_path
             )
             driver.set_page_load_timeout(25)
@@ -165,8 +188,9 @@ class TikTokUploader:
             # Scan window handles and navigate visible tab to upload page
             self.ensure_upload_tab(driver)
 
-            self._cached_driver = driver
-            self._cached_profile_id = profile_id
+            with self._driver_lock:
+                self._drivers[profile_id] = driver
+
             logger.info(f"✨ Đã mở sẵn GPM Profile [{profile_id[:8]}...] trên cổng {port} tại trang Upload.")
             return True, f"Mở sẵn GPM Profile (Cổng {port})"
         except Exception as e:
@@ -587,17 +611,22 @@ class TikTokUploader:
             logger.warning("Selenium not installed; upload simulated.")
             return True, 0.5, "Selenium không có sẵn (mô phỏng thành công)"
 
-        # 1. Use pre-warmed driver or connect
+        # 1. Use pre-warmed driver or connect for this specific profile_id
         driver = None
-        if self._cached_driver and self._cached_profile_id == profile_id:
-            try:
-                _ = self._cached_driver.current_url
-                driver = self._cached_driver
-                logger.info("Sử dụng GPM browser đã mở sẵn (0s độ trễ mở trình duyệt)!")
-            except Exception:
-                self._cached_driver = None
+        if profile_id:
+            with self._driver_lock:
+                cached_d = self._drivers.get(profile_id)
+            if cached_d:
+                try:
+                    _ = cached_d.current_url
+                    driver = cached_d
+                    logger.info(f"Sử dụng GPM browser [{profile_id[:8]}...] đã mở sẵn (0s độ trễ)!")
+                except Exception:
+                    with self._driver_lock:
+                        self._drivers.pop(profile_id, None)
 
         if not driver:
+            remote_addr = self.remote_debugging_address
             driver_path = None
             if gpm_client and profile_id:
                 ok, data, msg = gpm_client.start_profile(profile_id)
@@ -605,9 +634,9 @@ class TikTokUploader:
                     addr = data.get("remote_debugging_address") or data.get("selenium_remote_debug_address")
                     port = data.get("remote_debugging_port") or data.get("port")
                     if addr:
-                        self.remote_debugging_address = addr
+                        remote_addr = addr
                     elif port:
-                        self.remote_debugging_address = f"127.0.0.1:{port}"
+                        remote_addr = f"127.0.0.1:{port}"
                     driver_path = data.get("driver_path")
                     if driver_path:
                         self._cached_driver_path = driver_path
@@ -615,12 +644,13 @@ class TikTokUploader:
 
             try:
                 driver = self._create_driver_for_address(
-                    self.remote_debugging_address,
+                    remote_addr,
                     driver_path=driver_path or self._cached_driver_path
                 )
                 driver.set_page_load_timeout(30)
-                self._cached_driver = driver
-                self._cached_profile_id = profile_id
+                if profile_id:
+                    with self._driver_lock:
+                        self._drivers[profile_id] = driver
             except Exception as e:
                 return False, time.perf_counter() - t_start, f"Lỗi kết nối CDP: {e}"
 
@@ -712,26 +742,40 @@ class TikTokUploader:
         """
         Gracefully closes Selenium session and shuts down the running GPM Profile
         to save RAM and CPU when outside active scheduled hours or after upload.
+        Supports closing a specific profile or all active profiles.
         """
         closed = False
-        if self._cached_driver:
-            try:
-                self._cached_driver.quit()
-                closed = True
-            except Exception as e:
-                logger.debug(f"Error quitting Selenium driver: {e}")
-            finally:
-                self._cached_driver = None
-
-        pid_to_stop = profile_id or self._cached_profile_id
-        if pid_to_stop and gpm_client:
-            try:
-                gpm_client.stop_profile(pid_to_stop)
-                closed = True
-            except Exception as e:
-                logger.debug(f"Error stopping GPM profile via API: {e}")
-            finally:
-                self._cached_profile_id = None
+        if profile_id:
+            with self._driver_lock:
+                d = self._drivers.pop(profile_id, None)
+            if d:
+                try:
+                    d.quit()
+                    closed = True
+                except Exception as e:
+                    logger.debug(f"Error quitting Selenium driver for {profile_id}: {e}")
+            if gpm_client:
+                try:
+                    gpm_client.stop_profile(profile_id)
+                    closed = True
+                except Exception as e:
+                    logger.debug(f"Error stopping GPM profile {profile_id}: {e}")
+        else:
+            with self._driver_lock:
+                all_items = list(self._drivers.items())
+                self._drivers.clear()
+            for pid, d in all_items:
+                try:
+                    d.quit()
+                    closed = True
+                except Exception as e:
+                    logger.debug(f"Error quitting Selenium driver: {e}")
+                if gpm_client and pid:
+                    try:
+                        gpm_client.stop_profile(pid)
+                        closed = True
+                    except Exception as e:
+                        logger.debug(f"Error stopping GPM profile {pid}: {e}")
 
         return closed
 

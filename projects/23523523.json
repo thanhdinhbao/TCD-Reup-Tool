@@ -1,7 +1,7 @@
 {
     "name": "23523523",
     "channels": [
-        "https://youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg"
+        "UCd7yaJaUIoTmkoZz1rvBPsA"
     ],
     "threads": 10,
     "use_proxy": false,
@@ -38,7 +38,7 @@
         "next_video_delay": 180,
         "gpm_open_mode": "on_new_video",
         "channels_config": {
-            "https://youtube.com/channel/UCoBiThY_m86O0exY1Gqihfg": {
+            "UCd7yaJaUIoTmkoZz1rvBPsA": {
                 "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
                 "quality": "720_fps",
                 "fps": "120",

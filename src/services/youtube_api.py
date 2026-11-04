@@ -13,7 +13,7 @@ import logging
 import urllib.request
 import urllib.error
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple, Callable
 
 logger = logging.getLogger(__name__)
@@ -392,12 +392,29 @@ class YouTubeAPIClient:
                     continue
                 title = entry.get("title", f"Video {v_id}")
                 url = entry.get("url") or f"https://www.youtube.com/watch?v={v_id}"
+                pub_val = ""
+                if entry.get("timestamp"):
+                    try:
+                        pub_val = datetime.fromtimestamp(entry["timestamp"], timezone.utc).isoformat()
+                    except Exception:
+                        pass
+                elif entry.get("release_timestamp"):
+                    try:
+                        pub_val = datetime.fromtimestamp(entry["release_timestamp"], timezone.utc).isoformat()
+                    except Exception:
+                        pass
+                elif entry.get("upload_date"):
+                    ud = str(entry["upload_date"])
+                    if len(ud) == 8:
+                        pub_val = f"{ud[:4]}-{ud[4:6]}-{ud[6:8]}T00:00:00Z"
+
                 results.append({
                     "id": v_id,
                     "title": title,
                     "url": url,
                     "duration": entry.get("duration", 0) or 0,
-                    "published": ""
+                    "published": pub_val,
+                    "published_at": pub_val
                 })
                 if len(results) >= limit:
                     break
@@ -442,7 +459,8 @@ class YouTubeAPIClient:
                         "title": title,
                         "url": f"https://www.youtube.com/watch?v={vid_id}",
                         "duration": 0,
-                        "published": pub_el.text if pub_el is not None else ""
+                        "published": pub_el.text if pub_el is not None else "",
+                        "published_at": pub_el.text if pub_el is not None else ""
                     })
                     if len(results) >= limit:
                         break
@@ -569,6 +587,7 @@ class YouTubeAPIClient:
                                 "title": snippet.get("title", f"Video {vid_id}"),
                                 "url": f"https://www.youtube.com/watch?v={vid_id}",
                                 "published_at": snippet.get("publishedAt", ""),
+                                "published": snippet.get("publishedAt", ""),
                                 "uploader": snippet.get("channelTitle", ""),
                                 "duration": 0
                             })
@@ -615,6 +634,7 @@ class YouTubeAPIClient:
                                 "title": snippet.get("title", f"Video {vid_id}"),
                                 "url": f"https://www.youtube.com/watch?v={vid_id}",
                                 "published_at": snippet.get("publishedAt", ""),
+                                "published": snippet.get("publishedAt", ""),
                                 "uploader": snippet.get("channelTitle", ""),
                                 "duration": 0
                             })

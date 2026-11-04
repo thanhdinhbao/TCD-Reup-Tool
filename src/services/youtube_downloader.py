@@ -7,6 +7,7 @@ import time
 import subprocess
 import urllib.request
 import concurrent.futures
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Callable, Any
 
@@ -310,12 +311,29 @@ class YouTubeDownloader:
                             if not vid_url or not vid_url.startswith("http"):
                                 vid_url = f"https://www.youtube.com/watch?v={vid_id}"
                             duration = entry.get("duration") or 0
+                            ts = entry.get("timestamp") or entry.get("release_timestamp")
+                            upload_date = entry.get("upload_date")
+                            pub_str = ""
+                            if ts:
+                                try:
+                                    pub_str = datetime.fromtimestamp(ts, timezone.utc).isoformat()
+                                except Exception:
+                                    pass
+                            if not pub_str and upload_date:
+                                try:
+                                    ud = str(upload_date)
+                                    if len(ud) == 8:
+                                        pub_str = f"{ud[:4]}-{ud[4:6]}-{ud[6:8]}T00:00:00+00:00"
+                                except Exception:
+                                    pass
                             results.append({
                                 "id": vid_id,
                                 "title": title,
                                 "url": vid_url,
                                 "duration": duration,
                                 "uploader": entry.get("uploader") or "",
+                                "published": pub_str,
+                                "published_at": pub_str
                             })
                             if len(results) >= limit:
                                 break
@@ -339,6 +357,21 @@ class YouTubeDownloader:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 if info:
+                    ts = info.get("timestamp") or info.get("release_timestamp")
+                    upload_date = info.get("upload_date")
+                    pub_str = ""
+                    if ts:
+                        try:
+                            pub_str = datetime.fromtimestamp(ts, timezone.utc).isoformat()
+                        except Exception:
+                            pass
+                    if not pub_str and upload_date:
+                        try:
+                            ud = str(upload_date)
+                            if len(ud) == 8:
+                                pub_str = f"{ud[:4]}-{ud[4:6]}-{ud[6:8]}T00:00:00+00:00"
+                        except Exception:
+                            pass
                     return {
                         "id": info.get("id", ""),
                         "title": info.get("title", ""),
@@ -347,6 +380,8 @@ class YouTubeDownloader:
                         "description": info.get("description", ""),
                         "width": info.get("width") or 0,
                         "height": info.get("height") or 0,
+                        "published": pub_str,
+                        "published_at": pub_str,
                     }
         except Exception as e:
             logger.error(f"Error retrieving video info: {e}")

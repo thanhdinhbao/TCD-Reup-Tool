@@ -1,7 +1,7 @@
 {
     "name": "1232",
     "channels": [
-        "https://www.youtube.com/channel/UCW09iZOm1xBkTjoQGVkn0sA"
+        "UCoBiThY_m86O0exY1Gqihfg"
     ],
     "threads": 10,
     "use_proxy": false,
@@ -27,7 +27,7 @@
         "upload_timeout": 30,
         "next_video_delay": 180,
         "channels_config": {
-            "https://www.youtube.com/channel/UCW09iZOm1xBkTjoQGVkn0sA": {
+            "UCoBiThY_m86O0exY1Gqihfg": {
                 "profile_id": "553df384-88ed-46bd-b4da-a4aee9060b2e",
                 "quality": "720_fps",
                 "fps": "120",
