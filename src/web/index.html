@@ -78,9 +78,13 @@
       <!-- Execution Action Bar -->
       <div class="channels-actions-bar">
         <div class="action-group-left" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-          <button id="btn-start-automation" class="btn btn-emerald" title="Chạy riêng dự án đang chọn trong dropdown">▶ Chạy dự án này</button>
-          <button id="btn-start-all-projects" class="btn btn-cyan" title="Chạy đồng thời tất cả các dự án cùng lúc" style="background: linear-gradient(135deg, #06b6d4, #2563eb); font-weight: 600; color: #fff;">⚡ Chạy tất cả dự án</button>
-          <button id="btn-stop-automation" class="btn btn-ruby" disabled title="Dừng toàn bộ hệ thống">⏹ Dừng tất cả</button>
+          <button id="btn-start-automation" class="btn btn-emerald" title="Chạy riêng dự án đang chọn trong dropdown">▶
+            Chạy dự án này</button>
+          <button id="btn-start-all-projects" class="btn btn-cyan" title="Chạy đồng thời tất cả các dự án cùng lúc"
+            style="background: linear-gradient(135deg, #06b6d4, #2563eb); font-weight: 600; color: #fff;">⚡ Chạy tất cả
+            dự án</button>
+          <button id="btn-stop-automation" class="btn btn-ruby" disabled title="Dừng toàn bộ hệ thống">⏹ Dừng tất
+            cả</button>
           <div class="threads-box">
             <span>Luồng:</span>
             <input type="number" id="input-threads" class="threads-input" value="500" min="1" max="1000">
@@ -95,7 +99,8 @@
           </div>
           <div class="threads-box" title="Bỏ qua không tải các video có thời lượng ngắn dưới x giây">
             <span>Không tải dưới:</span>
-            <input type="number" id="input-min-duration" class="threads-input" value="20" min="0" max="600" style="width: 46px;">
+            <input type="number" id="input-min-duration" class="threads-input" value="20" min="0" max="600"
+              style="width: 46px;">
             <span>giây</span>
           </div>
         </div>
@@ -143,7 +148,7 @@
 
         <!-- Download & Processing Queue -->
         <div class="cyber-card queue-card">
-          <div class="queue-header">Hàng chờ tải & Render VP9</div>
+          <div class="queue-header">Hàng chờ tải & Render</div>
           <div class="queue-body">
             <table class="cyber-table" id="table-queue">
               <thead>
@@ -183,6 +188,11 @@
       <label class="checkbox-label" title="Bỏ qua các video có khung hình ngang (Landscape), chỉ nhận video dọc/vuông">
         <input type="checkbox" id="chk-skip-horizontal" checked>
         <span>Bỏ qua video ngang</span>
+      </label>
+      <label class="checkbox-label"
+        title="Tự động xóa video gốc và file đã render sau khi upload thành công lên TikTok để giải phóng ổ cứng">
+        <input type="checkbox" id="chk-delete-after-upload">
+        <span>Xóa video sau khi up</span>
       </label>
       <button id="btn-open-tiktok-config" class="btn btn-secondary btn-sm">Cấu hình TikTok</button>
       <button id="btn-open-license" class="btn btn-amber btn-sm">📜 Điều khoản / Bản quyền</button>
@@ -300,7 +310,8 @@
         <!-- Mode All Time -->
         <div class="schedule-option-card" id="opt-schedule-all" data-mode="all_time">
           <div class="option-title">⏰ Quét tất cả thời gian (24/7)</div>
-          <div class="option-desc">Chạy liên tục toàn bộ thời gian trong ngày (00:00 - 23:59), không giới hạn khung giờ. Tự động quét và đăng ngay lập tức bất cứ lúc nào kênh có video mới.</div>
+          <div class="option-desc">Chạy liên tục toàn bộ thời gian trong ngày (00:00 - 23:59), không giới hạn khung giờ.
+            Tự động quét và đăng ngay lập tức bất cứ lúc nào kênh có video mới.</div>
           <div class="option-example">VD: 1 khung 00:00-23:59 (chạy 24/24 xuyên suốt)</div>
         </div>
       </div>
@@ -406,8 +417,10 @@
         <!-- Guidelines banner -->
         <div
           style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid var(--cyan); padding: 10px 14px; border-radius: 4px; font-size: 11.5px; line-height: 1.5; color: #cbd5e1;">
-          <div>• <b>Cấu hình theo Dự Án:</b> Mỗi Dự Án gắn liền với 1 Profile GPM TikTok. <b>Tất cả các kênh YouTube trong 1 dự án sẽ tự động dùng chung Profile GPM của dự án đó!</b></div>
-          <div>• <b>Tự động nạp Profile:</b> Khi mở bảng này, hệ thống tự động quét và nạp toàn bộ Profile GPM từ GPMLogin (Port 9495) mà không cần nhấn nạp lại.</div>
+          <div>• <b>Cấu hình theo Dự Án:</b> Mỗi Dự Án gắn liền với 1 Profile GPM TikTok. <b>Tất cả các kênh YouTube
+              trong 1 dự án sẽ tự động dùng chung Profile GPM của dự án đó!</b></div>
+          <div>• <b>Tự động nạp Profile:</b> Khi mở bảng này, hệ thống tự động quét và nạp toàn bộ Profile GPM từ
+            GPMLogin (Port 9495) mà không cần nhấn nạp lại.</div>
           <div>• <b>Tìm kiếm nhanh:</b> Sử dụng ô tìm kiếm để lọc nhanh Dự Án hoặc Profile GPM mong muốn.</div>
         </div>
 
@@ -431,6 +444,13 @@
               </select>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+              <span>Xóa sau khi up:</span>
+              <select id="select-delete-after-upload" class="select-control">
+                <option value="false">Giữ lại video</option>
+                <option value="true">🗑 Tự động xóa video</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
               <span>Caption:</span>
               <select id="select-caption-mode" class="select-control">
                 <option value="keep_title">Giữ nguyên Title</option>
@@ -439,14 +459,17 @@
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 10px;">
-            <span id="lbl-gpm-profiles-count" style="font-size: 11px; color: var(--emerald); font-weight: 600;">Đã nạp 0 profiles</span>
+            <span id="lbl-gpm-profiles-count" style="font-size: 11px; color: var(--emerald); font-weight: 600;">Đã nạp 0
+              profiles</span>
             <button id="btn-sync-gpm" class="btn btn-primary btn-sm">🔄 Quét lại GPM (Port 9495)</button>
           </div>
         </div>
 
         <!-- Quick Search Bar -->
         <div style="margin: 10px 0; display: flex; gap: 10px; align-items: center;">
-          <input type="text" id="input-search-gpm-project" class="text-input" placeholder="🔍 Gõ tìm kiếm nhanh Profile GPM hoặc Tên Dự Án..." style="flex: 1; padding: 7px 12px; font-size: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: #f1f5f9;">
+          <input type="text" id="input-search-gpm-project" class="text-input"
+            placeholder="🔍 Gõ tìm kiếm nhanh Profile GPM hoặc Tên Dự Án..."
+            style="flex: 1; padding: 7px 12px; font-size: 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: #f1f5f9;">
           <span id="lbl-search-match-count" style="font-size: 11.5px; color: var(--cyan); white-space: nowrap;"></span>
         </div>
 

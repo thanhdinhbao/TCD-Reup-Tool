@@ -96,6 +96,8 @@ function renderInitialUI() {
   document.getElementById('chk-only-shorts').checked = !!appState.only_shorts;
   const elSkipH = document.getElementById('chk-skip-horizontal');
   if (elSkipH) elSkipH.checked = (appState.skip_horizontal !== undefined) ? !!appState.skip_horizontal : true;
+  const elDelAfter = document.getElementById('chk-delete-after-upload');
+  if (elDelAfter) elDelAfter.checked = !!appState.delete_after_upload;
   document.getElementById('chk-telegram-enabled').checked = !!appState.telegram_enabled;
 
   // Stats
@@ -297,7 +299,7 @@ function setupUIEventListeners() {
   }
 
   // Setting toggles change -> auto save
-  ['input-threads', 'chk-auto-upload-tiktok', 'chk-only-shorts', 'chk-skip-horizontal', 'select-scan-engine', 'input-min-duration'].forEach(id => {
+  ['input-threads', 'chk-auto-upload-tiktok', 'chk-only-shorts', 'chk-skip-horizontal', 'chk-delete-after-upload', 'select-scan-engine', 'input-min-duration'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', () => {
@@ -377,6 +379,13 @@ async function saveCurrentProjectState() {
   if (elShorts) appState.only_shorts = elShorts.checked;
   const elSkipH = document.getElementById('chk-skip-horizontal');
   if (elSkipH) appState.skip_horizontal = elSkipH.checked;
+  const elDelAfter = document.getElementById('chk-delete-after-upload');
+  if (elDelAfter) {
+    appState.delete_after_upload = elDelAfter.checked;
+    if (appState.global_tiktok_config) {
+      appState.global_tiktok_config.delete_after_upload = elDelAfter.checked;
+    }
+  }
   const elScanEngine = document.getElementById('select-scan-engine');
   if (elScanEngine) appState.scan_engine = elScanEngine.value;
   const elMinDur = document.getElementById('input-min-duration');
@@ -391,6 +400,7 @@ async function saveCurrentProjectState() {
       auto_upload_tiktok: appState.auto_upload_tiktok,
       only_shorts: appState.only_shorts,
       skip_horizontal: appState.skip_horizontal,
+      delete_after_upload: appState.delete_after_upload,
       scan_engine: appState.scan_engine,
       min_duration: appState.min_duration
     });
@@ -739,6 +749,8 @@ function renderTikTokConfigModal() {
   if (elGpmMode) elGpmMode.value = globalCfg.gpm_open_mode || 'on_new_video';
   const elCaption = document.getElementById('select-caption-mode');
   if (elCaption) elCaption.value = globalCfg.caption_mode || 'keep_title';
+  const elDelAfterModal = document.getElementById('select-delete-after-upload');
+  if (elDelAfterModal) elDelAfterModal.value = (globalCfg.delete_after_upload ? 'true' : 'false');
 
   const gpmProfiles = appState.gpm_profiles || [];
   const elCount = document.getElementById('lbl-gpm-profiles-count');
@@ -1039,6 +1051,14 @@ async function saveTikTokConfigFromModal() {
   const elGpmMode = document.getElementById('select-gpm-open-mode');
   if (elGpmMode) globalCfg.gpm_open_mode = elGpmMode.value;
   globalCfg.caption_mode = document.getElementById('select-caption-mode').value;
+  const elDelAfterModal = document.getElementById('select-delete-after-upload');
+  if (elDelAfterModal) {
+    const isDel = elDelAfterModal.value === 'true';
+    globalCfg.delete_after_upload = isDel;
+    appState.delete_after_upload = isDel;
+    const chkDel = document.getElementById('chk-delete-after-upload');
+    if (chkDel) chkDel.checked = isDel;
+  }
 
   const projectConfigs = {};
 

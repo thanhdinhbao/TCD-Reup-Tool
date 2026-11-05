@@ -1,0 +1,37 @@
+{
+    "name": "kenh2",
+    "channels": [
+        "UCxp-kVlGt-SOXWEcfpDjFeg"
+    ],
+    "threads": 10,
+    "use_proxy": false,
+    "proxy_region": "IP - Nhật Bản",
+    "auto_upload_tiktok": true,
+    "only_shorts": true,
+    "skip_horizontal": true,
+    "scan_engine": "both",
+    "min_duration": 20,
+    "telegram_enabled": true,
+    "schedule": [
+        {
+            "start": "00:00",
+            "end": "23:59"
+        }
+    ],
+    "schedule_mode": "all_time",
+    "queue": [],
+    "tiktok_config": {
+        "upload_timeout": 30,
+        "next_video_delay": 180,
+        "gpm_open_mode": "on_new_video",
+        "caption_mode": "keep_title",
+        "channels_config": {
+            "UCxp-kVlGt-SOXWEcfpDjFeg": {
+                "profile_id": "9ac3fbb5-7724-41dc-8e18-7a59da020654",
+                "quality": "720_fps",
+                "fps": "120",
+                "process_mode": "direct"
+            }
+        }
+    }
+}

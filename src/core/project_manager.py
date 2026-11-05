@@ -85,6 +85,7 @@ class ProjectManager:
             "auto_upload_tiktok": True,
             "only_shorts": True,
             "skip_horizontal": True,
+            "delete_after_upload": False,
             "scan_engine": "both",
             "min_duration": 20,
             "telegram_enabled": True,
@@ -124,6 +125,7 @@ class ProjectManager:
                 "auto_upload_tiktok": True,
                 "only_shorts": True,
                 "skip_horizontal": True,
+                "delete_after_upload": False,
                 "scan_engine": "both",
                 "min_duration": 20,
                 "telegram_enabled": True,
@@ -202,6 +204,7 @@ class ProjectManager:
             "next_video_delay": 180,
             "gpm_open_mode": "on_new_video",
             "caption_mode": "keep_title",
+            "delete_after_upload": False,
             "project_configs": {}
         }
 
@@ -304,6 +307,8 @@ class ProjectManager:
                 tt_sub["next_video_delay"] = config.get("next_video_delay", 180)
                 tt_sub["gpm_open_mode"] = config.get("gpm_open_mode", "on_new_video")
                 tt_sub["caption_mode"] = config.get("caption_mode", "keep_title")
+                tt_sub["delete_after_upload"] = config.get("delete_after_upload", False)
+                p_data["delete_after_upload"] = config.get("delete_after_upload", False)
 
                 # Cập nhật channels_config: mọi kênh của dự án đều gán theo profile của dự án
                 channels_map = {}

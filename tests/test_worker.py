@@ -56,6 +56,15 @@ class TestAutomationWorker(unittest.TestCase):
         worker.run()
         self.assertTrue(any("dừng" in l.lower() or "hoàn thành" in l.lower() for l in logs))
 
+    def test_worker_delete_after_upload_flag(self):
+        worker = AutomationWorker(
+            channels=["https://www.youtube.com/@Sample"],
+            base_path=os.path.dirname(__file__),
+            auto_upload_tiktok=True,
+            delete_after_upload=True
+        )
+        self.assertTrue(worker.delete_after_upload)
+
 
 class TestTikTokUploader(unittest.TestCase):
     def test_uploader_init(self):

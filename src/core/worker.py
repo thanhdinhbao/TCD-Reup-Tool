@@ -31,12 +31,14 @@ class AutomationWorker(QThread):
         api_key_manager: Optional[APIKeyManager] = None,
         schedule: Optional[List[Dict[str, str]]] = None,
         tiktok_config: Optional[Dict[str, Any]] = None,
+        delete_after_upload: bool = False,
         parent=None
     ):
         super().__init__(parent)
         self.channels = channels
         self.base_path = base_path
         self.auto_upload_tiktok = auto_upload_tiktok
+        self.delete_after_upload = delete_after_upload
         self.gpm_port = gpm_port or "9222"
         self.telegram_notifier = telegram_notifier
         self.api_key_manager = api_key_manager
@@ -191,6 +193,14 @@ class AutomationWorker(QThread):
                     ok_upload = uploader.upload_video(render_path, caption=final_caption, auto_post=False)
                     if ok_upload:
                         self.log_signal.emit(f"Tải lên TikTok Studio thành công qua Profile [{target_name}]: {title}")
+                        if self.delete_after_upload:
+                            for f_del in [raw_path, render_path]:
+                                if f_del and os.path.exists(f_del):
+                                    try:
+                                        os.remove(f_del)
+                                    except Exception:
+                                        pass
+                            self.log_signal.emit(f"🗑 Đã xóa video tạm sau khi đăng thành công: {render_filename}")
                     else:
                         self.log_signal.emit(
                             f"Cảnh báo: Không thể upload tự động qua CDP Port {self.gpm_port}. File sẵn sàng tại: {render_path}"

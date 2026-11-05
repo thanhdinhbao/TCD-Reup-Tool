@@ -9,7 +9,7 @@ import urllib.request
 import concurrent.futures
 from datetime import datetime, timezone
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Callable, Any
+from typing import Optional, List, Dict, Callable, Any, Tuple
 
 try:
     import yt_dlp
@@ -17,6 +17,8 @@ except ImportError:
     yt_dlp = None
 
 logger = logging.getLogger(__name__)
+
+SHORTS_CUTOFF = datetime(2024, 10, 15, tzinfo=timezone.utc)
 
 
 class SilentLogger:
@@ -118,15 +120,102 @@ class YouTubeDownloader:
                 return c
         return "ffprobe"
 
+    def check_video(self, video_url_or_id: str) -> Dict[str, Any]:
+        """
+        Phân loại video chính xác theo logic test.py:
+        1. duration <= 0 or width <= 0 or height <= 0 -> UNKNOWN
+        2. duration > 180s -> VIDEO_THUONG
+        3. width > height -> VIDEO_THUONG
+        4. published_at is None -> UNKNOWN
+        5. published_at < SHORTS_CUTOFF (15/10/2024) -> VIDEO_THUONG
+        6. Ngược lại -> SHORTS
+        """
+        vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
+        if not vid_id or len(vid_id) < 5:
+            return {"video_id": vid_id, "type": "UNKNOWN", "reason": "Video ID không hợp lệ"}
+
+        url = f"https://www.youtube.com/watch?v={vid_id}"
+        options = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "noplaylist": True,
+            "extractor_retries": 2,
+            "socket_timeout": 15
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            err_str = str(e)
+            if "Video unavailable" in err_str or "removed by the uploader" in err_str or "Private video" in err_str:
+                return {
+                    "video_id": vid_id,
+                    "type": "UNAVAILABLE",
+                    "reason": "Video không có sẵn trên YouTube (Người tải lên đã xóa hoặc đặt riêng tư)",
+                    "url": url
+                }
+            return {
+                "video_id": vid_id,
+                "type": "UNKNOWN",
+                "reason": f"Lỗi trích xuất metadata: {e}",
+                "url": url
+            }
+
+        if not info:
+            return {"video_id": vid_id, "type": "UNKNOWN", "reason": "Không lấy được thông tin video", "url": url}
+
+        duration = int(info.get("duration") or 0)
+        width = int(info.get("width") or 0)
+        height = int(info.get("height") or 0)
+        upload_date = info.get("upload_date")
+
+        published_at = None
+        if upload_date:
+            try:
+                published_at = datetime.strptime(str(upload_date), "%Y%m%d").replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+
+        # Phân loại theo đúng logic test.py
+        if duration <= 0 or width <= 0 or height <= 0:
+            video_type = "UNKNOWN"
+            reason = f"Thiếu thông số video (duration: {duration}s, width: {width}, height: {height})"
+        elif duration > 180:
+            video_type = "VIDEO_THUONG"
+            reason = f"Thời lượng {duration}s > 180s (Video dài)"
+        elif width > height:
+            video_type = "VIDEO_THUONG"
+            reason = f"Khung hình ngang ({width}x{height})"
+        elif published_at is None:
+            video_type = "UNKNOWN"
+            reason = "Không xác định được ngày đăng"
+        elif published_at < SHORTS_CUTOFF:
+            video_type = "VIDEO_THUONG"
+            reason = f"Đăng ngày {upload_date} (< 15/10/2024 - mốc YouTube hỗ trợ Shorts 3 phút)"
+        else:
+            video_type = "SHORTS"
+            reason = "Hợp lệ (Khung hình dọc/vuông, thời lượng <= 180s, đăng sau 15/10/2024)"
+
+        return {
+            "video_id": vid_id,
+            "title": info.get("title") or f"Video {vid_id}",
+            "channel": info.get("channel") or info.get("uploader"),
+            "channel_id": info.get("channel_id"),
+            "duration_seconds": duration,
+            "resolution": f"{width}x{height}",
+            "aspect_ratio": round(width / height, 3) if height else None,
+            "upload_date": upload_date,
+            "published_at": published_at,
+            "type": video_type,
+            "reason": reason,
+            "url": url
+        }
+
     def is_shorts(self, video_url_or_id: str, timeout: float = 4.0, duration: float = 0.0) -> bool:
         """
-        Kiểm tra siêu tốc video có phải là YouTube Shorts hay không (0.1s - 0.2s, 0 quota).
-        Đa tầng bảo vệ:
-        1. URL chứa '/shorts/' -> Chắc chắn là Shorts.
-        2. Duration đã biết: Nếu 0 < duration <= 60s -> Shorts.
-        3. HTTP HEAD tới https://www.youtube.com/shorts/{id} theo cơ chế redirect:
-           - Trình duyệt tự theo dõi redirect: nếu URL kết quả vẫn là /shorts/ -> Shorts.
-           - Nếu chuyển sang /watch?v=... -> Video thường.
+        Kiểm tra video có phải là YouTube Shorts hay không theo chuẩn test.py + HTTP redirect.
         """
         vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
         if not vid_id or len(vid_id) < 5:
@@ -135,12 +224,23 @@ class YouTubeDownloader:
         if "/shorts/" in str(video_url_or_id):
             return True
 
-        # YouTube Shorts hiện tại hỗ trợ tối đa 3 phút (180 giây)
         if 0 < duration <= 180:
             return True
         elif duration > 180:
             return False
 
+        # 1. Thử phân loại bằng test.py logic (chuẩn xác nhất)
+        try:
+            res = self.check_video(vid_id)
+            v_type = res.get("type")
+            if v_type == "SHORTS":
+                return True
+            elif v_type in ("VIDEO_THUONG", "UNAVAILABLE"):
+                return False
+        except Exception:
+            pass
+
+        # 2. HTTP HEAD / GET redirect tới https://www.youtube.com/shorts/{id}
         url = f"https://www.youtube.com/shorts/{vid_id}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -171,6 +271,34 @@ class YouTubeDownloader:
 
         return False
 
+    def is_video_available(self, video_url_or_id: str) -> Tuple[bool, str]:
+        """
+        Kiểm tra video có tồn tại công khai trên YouTube hay đã bị xóa / riêng tư.
+        Returns (is_available: bool, reason: str).
+        """
+        vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
+        if not vid_id:
+            return False, "ID video không hợp lệ"
+        try:
+            url = f"https://www.youtube.com/shorts/{vid_id}"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            }
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+                if "Người tải lên đã xóa video này" in html or "This video has been removed" in html:
+                    return False, "Người tải lên đã xóa video này trên YouTube"
+                if "Video không có sẵn" in html and "ERROR" in html:
+                    return False, "Video không có sẵn hoặc đặt Riêng tư"
+                return True, "Video khả dụng"
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return False, "Video không tồn tại (404 Not Found)"
+        except Exception:
+            pass
+        return True, "Video khả dụng"
+
     def is_horizontal(self, video_url_or_id: str = "", video_file: Optional[str] = None) -> bool:
         """
         Kiểm tra video có phải là video ngang (Landscape: width > height) hay không.
@@ -199,17 +327,27 @@ class YouTubeDownloader:
                 logger.debug(f"ffprobe is_horizontal check error: {e}")
 
         if video_url_or_id:
+            vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
+            res = self.check_video(vid_id)
+            if res.get("resolution"):
+                try:
+                    w, h = map(int, res["resolution"].split("x"))
+                    if w > 0 and h > 0:
+                        return w > h
+                except Exception:
+                    pass
+
             # Shorts YouTube luôn là video dọc 9:16 hoặc vuông 1:1, không bao giờ là video ngang
             if self.is_shorts(video_url_or_id):
                 return False
 
-            vid_id = self._extract_single_video_id(video_url_or_id) or str(video_url_or_id).strip()
             target_url = f"https://www.youtube.com/watch?v={vid_id}"
             info = self.get_video_info(target_url)
             w = info.get("width", 0)
             h = info.get("height", 0)
             if w > 0 and h > 0:
                 return w > h
+            return False
             # Nếu chưa xác định chắc chắn được kích thước qua metadata sơ bộ, không vội chặn trước khi tải
             # Bước sau tải sẽ có ffprobe kiểm tra kích thước file chuẩn xác 100% trong 0.01s
             return False

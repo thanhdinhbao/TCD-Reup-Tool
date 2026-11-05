@@ -156,7 +156,7 @@ class TikTokUploader:
                     self._drivers.pop(profile_id, None)
 
         try:
-            ok, data, msg = gpm_client.start_profile(profile_id)
+            ok, data, msg = gpm_client.start_profile(profile_id, window_scale=0.8, skip_proxy_check=True)
             if not ok or not isinstance(data, dict):
                 return False, f"Không thể mở GPM profile: {msg}"
 
@@ -444,8 +444,8 @@ class TikTokUploader:
                               btn.disabled || 
                               (btn.className && btn.className.toLowerCase().includes('disabled'));
                 if (!isDis) {
-                    btn.scrollIntoView({behavior: 'instant', block: 'center'});
-                    btn.click();
+                    b.scrollIntoView({behavior: 'instant', block: 'center'});
+                    b.click();
                     return true;
                 }
             }
@@ -460,8 +460,8 @@ class TikTokUploader:
                               b.getAttribute('data-loading') === 'true' ||
                               (b.className && b.className.toLowerCase().includes('disabled'));
                 if (!isDis) {
-                    btn.scrollIntoView({behavior: 'instant', block: 'center'});
-                    btn.click();
+                    b.scrollIntoView({behavior: 'instant', block: 'center'});
+                    b.click();
                     return true;
                 }
             }
@@ -629,7 +629,7 @@ class TikTokUploader:
             remote_addr = self.remote_debugging_address
             driver_path = None
             if gpm_client and profile_id:
-                ok, data, msg = gpm_client.start_profile(profile_id)
+                ok, data, msg = gpm_client.start_profile(profile_id, window_scale=0.8, skip_proxy_check=True)
                 if ok and isinstance(data, dict):
                     addr = data.get("remote_debugging_address") or data.get("selenium_remote_debug_address")
                     port = data.get("remote_debugging_port") or data.get("port")

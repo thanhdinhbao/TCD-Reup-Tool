@@ -400,6 +400,7 @@ class TestGPMLocalAPIClient(unittest.TestCase):
         self.assertIn("addition_args=", req_url)
         self.assertIn("remote-allow-origins", req_url)
         self.assertIn("disable-background-timer-throttling", req_url)
+        self.assertIn("window_scale=0.8", req_url)
 
 
 class TestWebBridgeApi(unittest.TestCase):
@@ -488,6 +489,7 @@ class TestWebBridgeApi(unittest.TestCase):
             "auto_upload_tiktok": False,
             "only_shorts": True,
             "skip_horizontal": True,
+            "delete_after_upload": True,
             "scan_engine": "both",
             "min_duration": 25
         }
@@ -496,6 +498,7 @@ class TestWebBridgeApi(unittest.TestCase):
         pstate = self.bridge.get_initial_state()
         self.assertTrue(pstate.get("only_shorts"))
         self.assertTrue(pstate.get("skip_horizontal"))
+        self.assertTrue(pstate.get("delete_after_upload"))
         self.assertEqual(pstate.get("scan_engine"), "both")
         self.assertEqual(pstate.get("min_duration"), 25)
 
@@ -516,6 +519,60 @@ class TestWebBridgeApi(unittest.TestCase):
         vp = VideoProcessor()
         # Non existent file returns False cleanly
         self.assertFalse(vp.process_fps_compression("non_existent_file.mp4", "out.mp4", fps="60"))
+
+    def test_check_video_classification_logic(self):
+        from src.services.youtube_downloader import YouTubeDownloader, SHORTS_CUTOFF
+        yd = YouTubeDownloader()
+        # Invalid video ID format
+        res = yd.check_video("short")
+        self.assertEqual(res["type"], "UNKNOWN")
+
+        # Mock extract_info to test classification rules
+        import yt_dlp
+        with patch.object(yt_dlp.YoutubeDL, "extract_info") as mock_info:
+            # 1. duration > 180 -> VIDEO_THUONG
+            mock_info.return_value = {
+                "id": "12345678901",
+                "duration": 200,
+                "width": 720,
+                "height": 1280,
+                "upload_date": "20261101"
+            }
+            res = yd.check_video("12345678901")
+            self.assertEqual(res["type"], "VIDEO_THUONG")
+
+            # 2. width > height -> VIDEO_THUONG
+            mock_info.return_value = {
+                "id": "12345678902",
+                "duration": 60,
+                "width": 1920,
+                "height": 1080,
+                "upload_date": "20261101"
+            }
+            res = yd.check_video("12345678902")
+            self.assertEqual(res["type"], "VIDEO_THUONG")
+
+            # 3. upload_date before cutoff (2024-10-15) -> VIDEO_THUONG
+            mock_info.return_value = {
+                "id": "12345678903",
+                "duration": 60,
+                "width": 720,
+                "height": 1280,
+                "upload_date": "20240101"
+            }
+            res = yd.check_video("12345678903")
+            self.assertEqual(res["type"], "VIDEO_THUONG")
+
+            # 4. Valid Short (vertical, <= 180s, after cutoff) -> SHORTS
+            mock_info.return_value = {
+                "id": "12345678904",
+                "duration": 65,
+                "width": 720,
+                "height": 1280,
+                "upload_date": "20261104"
+            }
+            res = yd.check_video("12345678904")
+            self.assertEqual(res["type"], "SHORTS")
 
 
 if __name__ == "__main__":

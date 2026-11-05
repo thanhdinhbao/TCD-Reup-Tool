@@ -130,19 +130,27 @@ class GPMLocalAPIClient:
 
     DEFAULT_ADDITION_ARGS = (
         "--remote-allow-origins=* "
+        "--mute-audio "
+        "--disable-gpu "
+        "--disable-software-rasterizer "
+        "--disable-dev-shm-usage "
         "--disable-background-timer-throttling "
         "--disable-backgrounding-occluded-windows "
         "--disable-renderer-backgrounding "
-        "--mute-audio"
+        "--disable-notifications "
+        "--disable-popup-blocking "
+        "--no-first-run "
+        "--no-default-browser-check "
+        "--force-device-scale-factor=0.8"
     )
 
     def start_profile(
         self,
         profile_id: str,
         remote_debugging_port: int = 0,
-        skip_proxy_check: bool = False,
+        skip_proxy_check: bool = True,
         addition_args: str = DEFAULT_ADDITION_ARGS,
-        window_scale: Optional[float] = None,
+        window_scale: Optional[float] = 0.8,
         window_pos: Optional[str] = None,
         window_size: Optional[str] = None,
     ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
@@ -166,8 +174,9 @@ class GPMLocalAPIClient:
             if isinstance(addition_args, (list, tuple)):
                 addition_args = " ".join(addition_args)
             params["addition_args"] = str(addition_args).strip()
-        if window_scale is not None:
-            params["window_scale"] = str(window_scale)
+        if window_scale is None:
+            window_scale = 0.8
+        params["window_scale"] = str(window_scale)
         if window_pos:
             params["window_pos"] = str(window_pos)
         if window_size:
